@@ -5,7 +5,7 @@ from lib.model.fpn import FPN101
 
 class ResNet_101_FPN(nn.Module):
     def __init__(self):
-        """ ResNet 101 FPN 封装
+        """ ResNet 101 FPN wrapper.
         """
         super(ResNet_101_FPN, self).__init__()
         self.fpn = FPN101()
