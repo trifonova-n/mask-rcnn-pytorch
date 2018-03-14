@@ -26,7 +26,7 @@ class MaskHead(nn.Module):
         """
         
         Args:
-            x: 
+            x: NxMxHxW, rois.
 
         Returns:
             x: NxMxCxHxW, C encode mask class id.

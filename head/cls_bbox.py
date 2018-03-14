@@ -3,6 +3,10 @@ import torch.nn as nn
 
 
 class ClsBBoxHead_fc(nn.Module):
+    """Classification and bounding box regression head using fully-connected style.
+    
+    """
+
     def __init__(self, depth, pool_size, num_classes):
         super(ClsBBoxHead_fc, self).__init__()
         self.depth = depth
@@ -15,20 +19,36 @@ class ClsBBoxHead_fc(nn.Module):
         self.log_softmax = nn.LogSoftmax()
 
     def forward(self, x):
+        """
+        
+        Args:
+            x: NxSxHxW, roi fixed dimensional representation after pooling like RoIAlign,
+                HxW: fixed size, like 14x14.
+
+        Returns:
+            cls_prob: NxSxNum_classes, probability of class.
+            bbox_reg: NxSxNum_classes*4(dx, dy, dw, dh), defined in R-CNN paper.
+        
+        Notes: In above, S: number of rois per image feed to predict heads
+            
+        """
         x = self.avg_pool(x)
         x = x.view(-1, self.depth)
         x = self.fc_0(x)
         x = self.fc_1(x)
 
         fc_out_cls = self.fc_cls(x)
-        fc_out_bbox = self.fc_bbox(x)
-        prob_cls = self.log_softmax(fc_out_cls)
-        prob_bbox = self.log_softmax(fc_out_bbox)
+        cls_prob = self.log_softmax(fc_out_cls)
+        bbox_reg = self.fc_bbox(x)
 
-        return prob_cls, prob_bbox
+        return cls_prob, bbox_reg
 
 
 class ClsBBoxHead_fcn(nn.Module):
+    """Classification and bounding box regression head using FCN style.
+
+    """
+
     def __init__(self, depth, pool_size, num_classes):
         super(ClsBBoxHead_fcn, self).__init__()
         self.conv1 = nn.Conv2d(depth, 1024, kernel_size=pool_size, stride=1)
@@ -38,9 +58,22 @@ class ClsBBoxHead_fcn(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.fc_cls = nn.Linear(1024, num_classes)
         self.fc_bbox = nn.Linear(1024, num_classes * 4)
-        self.softmax = nn.Softmax(dim=1)
+        self.log_softmax = nn.LogSoftmax()
 
     def forward(self, x):
+        """
+
+        Args:
+            x: NxSxHxW, rois fixed dimensional representation after pooling like RoIAlign,
+                HxW: fixed size, like 14x14.
+
+        Returns:
+            cls_prob: NxSxNum_classes, probability of class.
+            bbox_reg: NxSxNum_classes*4(dx, dy, dw, dh), defined in R-CNN paper.
+        
+        Notes: In above, S: number of rois per image feed to predict heads
+
+        """
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -50,7 +83,7 @@ class ClsBBoxHead_fcn(nn.Module):
 
         x = x.view(-1, 1024)
         fc_out_cls = self.fc_cls(x)
-        prob_cls = self.softmax(fc_out_cls)
-        reg_bbox = self.fc_bbox(x)
+        cls_prob = self.log_softmax(fc_out_cls)
+        bbox_reg = self.fc_bbox(x)
 
-        return prob_cls, reg_bbox
+        return cls_prob, bbox_reg
