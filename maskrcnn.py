@@ -3,12 +3,17 @@ from proposal.rpn import RPN
 from head.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from head.mask import MaskHead
 from pooling.roi_align import RoiAlign
+from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center
 
-import torch
-import torch.nn.functional as F
-import torch.nn as nn
 import random
+import torch
+import torch.nn as nn
+from configparser import ConfigParser
 
+
+# TODO: handle data flow between gpu and cpu.
+# TODO: rewrite the way to index tensor, reduce using FOR loop.
+# TODO: check inference and training process.
 
 class MaskRCNN(nn.Module):
     """Mask R-CNN
@@ -22,6 +27,8 @@ class MaskRCNN(nn.Module):
 
     def __init__(self, num_classes):
         super(MaskRCNN, self).__init__()
+        self.config = ConfigParser()
+        self.config.read("./config.ini")
         self.num_classes = num_classes
         self.fpn = ResNet_101_FPN()
         self.rpn = RPN(dim=512)
@@ -39,36 +46,60 @@ class MaskRCNN(nn.Module):
             gt_masks: NxMxHxW, ground truth masks.
             
         Returns:
-            cls_pred: NxOx1, class id prediction. 
-            bbox_pred: NxO(x1, y1, x2, y2), bounding-box prediction. 
-            mask_pred:  NxOxHxW, mask prediction.
-            
-        Notes: In above, O: number of output objects.
+            result(list of lists of dict): Outer list composed of mini-batch, inner list 
+                composed of detected objects per image, dict composed of "cls_pred": class id,
+                "bbox_pred" : bounding-box with tuple (x1, y1, x2, y2) indicate top-left and
+                bottom-right coord, and "mask_pred" : mask prediction with tuple (H,W).
+                
+                So, result[0][0]['cls_pred'] stands for class id of the first detected objects
+                in first image of mini-batch.
             
         """
+
+        p2, p3, p4, p5, p6 = self.fpn(x)
+        rpn_features_rpn = [p2, p3, p4, p5, p6]
+        fpn_features = [p2, p3, p4, p5]
+        rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features_rpn, gt_bboxes)
+        cls_targets, bbox_targets, mask_targets = None, None, None
+
         if self.training:
             assert gt_classes is not None
             assert gt_bboxes is not None
             assert gt_masks is not None
+            gen_result = self._generate_targets(rois, gt_classes, gt_bboxes, gt_masks)
+            rois, cls_targets, bbox_targets, mask_targets = gen_result
 
-        self.batch_size = x.size(0)
-        p2, p3, p4, p5, p6 = self.fpn(x)
-        rpn_features_rpn = [p2, p3, p4, p5, p6]
-        fpn_features = [p2, p3, p4, p5]
-        proposals, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features_rpn, gt_bboxes)
-        gen_result = self._generate_targets(proposals, gt_classes, gt_bboxes, gt_masks)
-        rois, cls_targets, bbox_targets, mask_targets = gen_result
         rois_pooling = self._roi_align_fpn(fpn_features, rois, img_height=x.size(2),
                                            img_width=x.size(3))
 
         cls_prob, bbox_reg = self.cls_box_head(rois_pooling)
         mask_prob = self.mask_head(rois_pooling)
 
-        maskrcnn_loss = self._calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets,
-                                                 bbox_targets, mask_targets)
+        maskrcnn_loss = calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets,
+                                           bbox_targets, mask_targets)
         loss = rpn_loss_cls + rpn_loss_bbox + maskrcnn_loss
-        # Todo: process final prediction.
-        return cls_pred, bbox_pred, mask_pred, loss
+        result = self._process_result(cls_prob, bbox_reg, mask_prob)
+        return result, loss
+
+    def _process_result(self, cls_prob, bbox_reg, mask_prob):
+        result = []
+        cls_id_prob, cls_id = torch.max(cls_prob, 2)
+        cls_threshold = float(self.config['predict']['classification-threshold'])
+        # remove background and predicted ids whose probability below threshold.
+        keep_index = (cls_id > 0) & (cls_id_prob >= cls_threshold)
+        for i in range(cls_prob.size(0)):
+            objects = []
+            for j in range(cls_prob.size(1)):
+                pred_dict = {}
+                if keep_index[i, j]:
+                    pred_dict['cls_pred'] = cls_id[i, j]
+                    pred_dict['bbox_pred'] = coord_corner2center(bbox_reg[i, j, :])
+                    mask_threshold = self.config['Test']['mask_threshold']
+                    pred_dict['mask_prob'] = mask_prob[i, j] >= mask_threshold
+                objects.append(pred_dict)
+            result.append(objects)
+
+        return result
 
     def _generate_targets(self, proposals, gt_classes, gt_bboxes, gt_masks):
         """Process proposals from RPN to generate rois to feed predict heads, and
@@ -90,28 +121,26 @@ class MaskRCNN(nn.Module):
         Notes: In above, R: number of ground truth objects, S: number of rois to train.
 
         """
-        self.train_rois_num = 1024
+        self.train_rois_num = self.config['Train']['train-rois-num']
         num_proposals = proposals.size(1)
         height = gt_bboxes.size(2)
         width = gt_bboxes.size(3)
         num_gt_bboxes = gt_bboxes.size(1)
-        rois = torch.zeros(self.batch_size, num_proposals, num_gt_bboxes, 2, 4)
-        cls_targets = torch.zeros(self.batch_size, num_proposals, num_gt_bboxes, 2,
-                                  self.num_classes)
-        bbox_targets = torch.zeros(self.batch_size, num_proposals, num_gt_bboxes, 2, 4)
-        mask_targets = torch.zeros(self.batch_size, num_proposals, num_gt_bboxes, 2, height, width)
-        for i in range(self.batch_size):
+        batch_size = proposals.size(0)
+        rois = torch.zeros(batch_size, num_proposals, num_gt_bboxes, 2, 4)
+        cls_targets = torch.zeros(batch_size, num_proposals, num_gt_bboxes, 2, self.num_classes)
+        bbox_targets = torch.zeros(batch_size, num_proposals, num_gt_bboxes, 2, 4)
+        mask_targets = torch.zeros(batch_size, num_proposals, num_gt_bboxes, 2, height, width)
+        for i in range(batch_size):
             for j in range(num_proposals):
                 for k in range(num_gt_bboxes):
-                    iou = MaskRCNN._calc_iou(proposals[i, j, :], gt_bboxes[i, k, :])
+                    iou = calc_iou(proposals[i, j, :], gt_bboxes[i, k, :])
                     if iou < 0.5:
                         rois[i, j, k, 0, :] = proposals[i, j, :]
                         cls_targets[i, j, k, 0, :] = gt_classes[i, k, :]
                         # Transform bbox coord from (x1, y1, x2, y2) to(x, y, w, h).
-                        x1, y1, x2, y2 = gt_bboxes[i, k, :]
-                        x, y = (x2 - x1 + 1) // 2 + x1, (y2 - y1 + 1) // 2 + y1
-                        w, d = (x2 - x1) + 1, (y2 - y1) + 1
-                        bbox_targets[i, j, k, 0, :] = x, y, w, d
+                        x, y, w, h = coord_corner2center(gt_bboxes[i, k, :])
+                        bbox_targets[i, j, k, 0, :] = x, y, w, h
                         mask_targets[i, j, k, 0, :, :] = gt_masks[i, k, :, :]
                     else:
                         rois[i, j, k, 1, :] = proposals[i, j, :]
@@ -119,10 +148,10 @@ class MaskRCNN(nn.Module):
                         bbox_targets[i, j, k, 1, :] = gt_bboxes[i, k, :]
                         mask_targets[i, j, k, 1, :] = gt_masks[i, k, :]
 
-        rois = rois.view(self.batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        cls_targets = cls_targets.view(self.batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        bbox_targets = bbox_targets.view(self.batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        mask_targets = mask_targets.view(self.batch_size, num_proposals * num_gt_bboxes, 2,
+        rois = rois.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
+        cls_targets = cls_targets.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
+        bbox_targets = bbox_targets.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
+        mask_targets = mask_targets.view(batch_size, num_proposals * num_gt_bboxes, 2,
                                          height, width)
         # train_rois should have 1:3 positive negative ratio, see Mask R-CNN paper.
         rois_neg = rois[:, :, 0, :]
@@ -166,7 +195,7 @@ class MaskRCNN(nn.Module):
         # intersection of roi with ground truth mask.
         # Todo: nms take 100 rois.
         mask_targets = mask_targets_pos_sampled
-        for i in range(self.batch_size):
+        for i in range(mask_targets.size(0)):
             for j in range(mask_targets.size(1)):
                 x1, y1, x2, y2 = rois_pos_sampled[i, j, :]
                 mask_targets[i, j, :x1, :] = 0
@@ -179,65 +208,6 @@ class MaskRCNN(nn.Module):
         bbox_targets = torch.cat([bbox_targets_neg_sampled, bbox_targets_pos_sampled], 1)
 
         return rois, cls_targets, bbox_targets, mask_targets
-
-    @staticmethod
-    def _calc_iou(bbox1, bbox2):
-        """ Calculate IoU(Intersection over union) of two bounding boxes.
-        
-        Args:
-            bbox1: (x1, y1, x2, y2), bounding box 1.
-            bbox2: (x1, y1, x2, y2), bounding box 2.
-
-        Returns:
-            iou: IoU of two bounding boxes.
-        """
-        area_1 = (bbox1[2] - bbox1[0] + 1) * (bbox1[3] - bbox1[1])
-        area_2 = (bbox2[2] - bbox2[0] + 1) * (bbox2[3] - bbox2[1])
-
-        inter_x1 = max(bbox1[0], bbox2[1])
-        inter_y1 = max(bbox1[1], bbox2[1])
-        inter_x2 = min(bbox1[2], bbox2[2])
-        inter_y2 = min(bbox1[3], bbox2[3])
-
-        inter_w = max(0, inter_x2 - inter_x1 + 1)
-        inter_h = max(0, inter_y2 - inter_y1 + 1)
-
-        intersection = inter_w * inter_h
-        iou = intersection / (area_1 + area_2 + intersection)
-
-        return iou
-
-    @staticmethod
-    def _calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets, bbox_targets,
-                            mask_targets):
-        """ Calculate Mask R-CNN loss.
-        
-        Args:
-            cls_prob: NxSxNum_classes, classification predict probability.
-            bbox_reg: NxSxNum_classes*4(dx, dy, dw, dh), bounding box regression.
-            mask_prob: NxSxNUM_CLASSESxHxW, mask prediction.
-            cls_targets: NxSxNum_classes, classification targets.
-            bbox_targets: NxSxNum_classes*4(dx, dy, dw, dh), bounding box regression targets.
-            mask_targets: NxSxHxW, mask targets.
-
-        Returns:
-            maskrcnn_loss: Total loss of Mask R-CNN predict heads.
-            
-        Notes: In above, S: number of rois feed to prediction heads.
-        
-        """
-        cls_loss = F.nll_loss(cls_prob, cls_targets)
-        bbox_loss = F.smooth_l1_loss(bbox_reg, bbox_targets)
-        _, cls_pred = torch.max(cls_prob, 2)
-        # Only predicted class masks contribute to mask loss.
-        mask_loss = 0
-        for i in range(cls_prob.size(0)):
-            for j in range(cls_prob.size(1)):
-                cls_id = cls_pred[i, j]
-                mask_loss += F.binary_cross_entropy(mask_prob[i, j, cls_id, :, :],
-                                                    mask_targets[i, j, :, :])
-        maskrcnn_loss = cls_loss + bbox_loss + mask_loss
-        return maskrcnn_loss
 
     def _roi_align_fpn(self, fpn_features, rois, img_width, img_height):
         """When use fpn backbone, set RoiAlign use different levels of fpn feature pyramid
