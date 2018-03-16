@@ -6,6 +6,7 @@ class RoiAlign(nn.Module):
     """RoiAlign wrapper
     
     """
+
     def __init__(self, grid_size):
         """
         Args:
@@ -25,6 +26,7 @@ class RoiAlign(nn.Module):
 
         Returns:
             roi_pool: MxCxoHxoW  M: number of roi in all mini-batch.
+            
         """
         roi_pool = self.roi_align(feature_map, boxes, box_idx)
 

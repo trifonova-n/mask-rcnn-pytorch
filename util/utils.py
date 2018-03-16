@@ -15,13 +15,13 @@ def calc_iou(bbox1, bbox2):
     area_1 = (bbox1[2] - bbox1[0] + 1) * (bbox1[3] - bbox1[1])
     area_2 = (bbox2[2] - bbox2[0] + 1) * (bbox2[3] - bbox2[1])
 
-    inter_x1 = max(bbox1[0], bbox2[1])
-    inter_y1 = max(bbox1[1], bbox2[1])
-    inter_x2 = min(bbox1[2], bbox2[2])
-    inter_y2 = min(bbox1[3], bbox2[3])
+    inter_x1 = torch.max(torch.cat([bbox1[0], bbox2[1]]))
+    inter_y1 = torch.max(torch.cat([bbox1[1], bbox2[1]]))
+    inter_x2 = torch.min(torch.cat([bbox1[2], bbox2[2]]))
+    inter_y2 = torch.min(torch.cat([bbox1[3], bbox2[3]]))
 
-    inter_w = max(0, inter_x2 - inter_x1 + 1)
-    inter_h = max(0, inter_y2 - inter_y1 + 1)
+    inter_w = torch.max(torch.cat([0, inter_x2 - inter_x1 + 1]))
+    inter_h = torch.max(torch.cat([0, inter_y2 - inter_y1 + 1]))
 
     intersection = inter_w * inter_h
     iou = intersection / (area_1 + area_2 + intersection)
