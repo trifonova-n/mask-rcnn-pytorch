@@ -3,10 +3,12 @@ from proposal.rpn import RPN
 from head.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from head.mask import MaskHead
 from pooling.roi_align import RoiAlign
-from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center
+from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center, coord_center2corner
 
 import random
 import torch
+from torch import FloatTensor, ByteTensor, IntTensor
+from torch.autograd import Variable
 import torch.nn as nn
 from configparser import ConfigParser
 
@@ -24,7 +26,7 @@ class MaskRCNN(nn.Module):
         
     """
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, img_size):
         super(MaskRCNN, self).__init__()
         self.config = ConfigParser()
         self.config.read("./config.ini")
@@ -33,7 +35,8 @@ class MaskRCNN(nn.Module):
         self.rpn = RPN(dim=256)
         self.roi_align = RoiAlign(grid_size=(14, 14))
         self.cls_box_head = ClsBBoxHead(depth=256, pool_size=14, num_classes=num_classes)
-        self.mask_head = MaskHead(depth=256, pool_size=14, num_classes=num_classes)
+        self.mask_head = MaskHead(depth=256, pool_size=14, num_classes=num_classes,
+                                  img_size=img_size)
 
     def forward(self, x, gt_classes=None, gt_bboxes=None, gt_masks=None):
         """
@@ -58,7 +61,9 @@ class MaskRCNN(nn.Module):
         p2, p3, p4, p5, p6 = self.fpn(x)
         rpn_features_rpn = [p2, p3, p4, p5, p6]
         fpn_features = [p2, p3, p4, p5]
-        # img_shape = torch.x.size(2), x.size(3)
+        img_shape = x.data.new(x.size(0), 2).zero_()
+        img_shape[:, 0] = x.size(2)
+        img_shape[:, 1] = x.size(3)
         rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features_rpn, gt_bboxes, img_shape)
         cls_targets, bbox_targets, mask_targets = None, None, None
 
@@ -74,31 +79,43 @@ class MaskRCNN(nn.Module):
 
         cls_prob, bbox_reg = self.cls_box_head(rois_pooling)
         mask_prob = self.mask_head(rois_pooling)
+        loss = 0
+        if self.training:
+            maskrcnn_loss = calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets,
+                                               bbox_targets, mask_targets)
+            loss = rpn_loss_cls + rpn_loss_bbox + maskrcnn_loss
+        result = self._process_result(x.size(0), rois, cls_prob, bbox_reg, mask_prob)
 
-        maskrcnn_loss = calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets,
-                                           bbox_targets, mask_targets)
-        loss = rpn_loss_cls + rpn_loss_bbox + maskrcnn_loss
-        result = self._process_result(cls_prob, bbox_reg, mask_prob)
         return result, loss
 
-    def _process_result(self, cls_prob, bbox_reg, mask_prob):
+    def _process_result(self, batch_size, proposals, cls_prob, bbox_reg, mask_prob):
         """Process heads output to get the final result.
         
         """
         result = []
+        # reshape back to NxM from (NxM)
+        cls_prob = cls_prob.view(batch_size, -1, cls_prob.size(1))
+        bbox_reg = bbox_reg.view(batch_size, -1, bbox_reg.size(1), bbox_reg.size(2))
+        mask_prob = mask_prob.view(batch_size, -1, mask_prob.size(1), mask_prob.size(2),
+                                   mask_prob.size(3))
         cls_id_prob, cls_id = torch.max(cls_prob, 2)
-        cls_threshold = float(self.config['Test']['cls-threshold'])
+        cls_threshold = float(self.config['Test']['cls_threshold'])
         # remove background and predicted ids whose probability below threshold.
         keep_index = (cls_id > 0) & (cls_id_prob >= cls_threshold)
         for i in range(cls_prob.size(0)):
             objects = []
             for j in range(cls_prob.size(1)):
-                pred_dict = {}
-                if keep_index[i, j]:
+                pred_dict = {'cls_pred': None, 'bbox_pred': None, 'mask_pred': None}
+                if keep_index[i, j].all():
                     pred_dict['cls_pred'] = cls_id[i, j]
-                    pred_dict['bbox_pred'] = coord_corner2center(bbox_reg[i, j, :])
+                    dx, dy, dw, dh = bbox_reg[i, j, cls_id[i, j], :]
+                    x, y, w, h = coord_corner2center(proposals[i, j, :])
+                    px, py = w * dx + x, h * dy + y
+                    pw, ph = w * torch.exp(dw), h * torch.exp(dh)
+                    px1, py1, px2, py2 = coord_center2corner((px, py, pw, ph))
+                    pred_dict['bbox_pred'] = (px1, py1, px2, py2)
                     mask_threshold = self.config['Test']['mask_threshold']
-                    pred_dict['mask_prob'] = mask_prob[i, j] >= mask_threshold
+                    pred_dict['mask_pred'] = mask_prob[i, j] >= mask_threshold
                 objects.append(pred_dict)
             result.append(objects)
 
@@ -124,7 +141,7 @@ class MaskRCNN(nn.Module):
             S: number of rois to train.
 
         """
-        train_rois_num = self.config['Train']['train-rois-num']
+        train_rois_num = self.config['Train']['train_rois_num']
         batch_size = proposals.size(0)
         num_proposals = proposals.size(1)
         num_gt_bboxes = gt_bboxes.size(1)
@@ -146,8 +163,11 @@ class MaskRCNN(nn.Module):
                     rois[i, j, k, pos_neg_idx, :] = proposals[i, j, :]
                     cls_targets[i, j, k, pos_neg_idx, :] = gt_classes[i, k, :]
                     # Transform bbox coord from (x1, y1, x2, y2) to(x, y, w, h).
-                    x, y, w, h = coord_corner2center(gt_bboxes[i, k, :])
-                    bbox_targets[i, j, k, pos_neg_idx, :] = x, y, w, h
+                    x, y, w, h = coord_corner2center(proposals[i, j, :])
+                    gt_x, gt_y, gt_w, gt_h = coord_corner2center(gt_bboxes[i, k, :])
+                    tx, ty = (gt_x - x) / w, (gt_y - y) / h
+                    tw, th = torch.log(gt_w / w), torch.log(gt_h, h)
+                    bbox_targets[i, j, k, pos_neg_idx, :] = tx, ty, tw, th
                     mask_targets[i, j, k, pos_neg_idx, :, :] = gt_masks[i, k, :, :]
 
         rois = rois.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
@@ -225,7 +245,7 @@ class MaskRCNN(nn.Module):
             img_height: Input image height.
 
         Returns:
-            rois_pooling: NxMxHxW, rois after use RoIAlign.
+            rois_pooling: (NxM)xCxHxW, rois after use RoIAlign.
             
         """
         # Flatten NxMx4 to (NxM)x4
@@ -239,17 +259,20 @@ class MaskRCNN(nn.Module):
             # for using of small image input, like maybe short side 256, here alpha is
             # parameterized by image short side size.
             alpha = 224 // 800 * (img_width if img_width <= img_height else img_height)
-            bbox_width = torch.abs(bbox[0] - bbox[2])
-            bbox_height = torch.abs(bbox[1] - bbox[3])
-            log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(2) / alpha
+            bbox_width = torch.abs(FloatTensor([bbox[0] - bbox[2]]))
+            bbox_height = torch.abs(FloatTensor([bbox[1] - bbox[3]]))
+            log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(FloatTensor([2]))
+            log2 /= alpha
             level = torch.floor(4 + log2) - 2  # minus 2 to make level 0 indexed
             # Rois small or big enough may get level below 0 or above 3.
-            level = torch.clamp(level, 0, 3)
+            level = int(torch.clamp(level, 0, 3))
             bbox = torch.unsqueeze(bbox, 0)
-            roi_pool_per_box = self.roi_align(fpn_features[level], bbox, bbox_indexes[idx])
+            roi_pool_per_box = self.roi_align(fpn_features[level], Variable(bbox),
+                                              Variable(IntTensor([int(bbox_indexes[idx])])))
             rois_pooling.append(roi_pool_per_box)
 
-        rois_pooling = torch.cat(rois_pooling, 0)
-        rois_pooling = rois_pooling.view(fpn_features[0].size(0), -1, rois_pooling.size(1),
-                                         rois_pooling.size(2))
+        rois_pooling = torch.cat(rois_pooling)
+        rois_pooling = rois_pooling.view(-1, rois_pooling.size(1), rois_pooling.size(2),
+                                         rois_pooling.size(3))
+        # rois_pooling size issues
         return rois_pooling

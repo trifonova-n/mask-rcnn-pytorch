@@ -62,7 +62,7 @@ def calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets, bbox_targets,
 
 
 def coord_corner2center(bbox):
-    """
+    """ Transform corner style coord (x1, y1, x2, y2) to center style (x, y, w, h). 
     
     Args:
         bbox: (x1, y1, x2, y2), bounding box in corner coord, (x1, y1) stands for bbox 
@@ -71,13 +71,32 @@ def coord_corner2center(bbox):
     Returns: (x, y, w, h), bounding box in center coord, (x, y) stands for bbox center,
         (w, h) stands for bbox width and height.
     """
+
     x1, y1, x2, y2 = bbox
     x = (x2 - x1 + 1) // 2 + x1
     y = (y2 - y1 + 1) // 2 + y1
     w = x2 - x1 + 1
     h = y2 - y1 + 1
+
     return x, y, w, h
 
 
-def coord_center2corner():
-    pass
+def coord_center2corner(bbox):
+    """ Transform center style coord (x, y, w, h) to corner style (x1, y1, x2, y2). 
+
+    Args:
+        bbox: (x, y, w, h), bounding box in center coord, (x, y) stands for bbox center,
+        (w, h) stands for bbox width and height.
+
+    Returns: 
+        bbox: (x1, y1, x2, y2), bounding box in corner coord, (x1, y1) stands for bbox 
+            top-left, (x2, y2) stands for bbox bottom-right.
+    """
+
+    x, y, w, h = bbox
+    x1 = x - (w // 2)
+    y1 = y - (h // 2)
+    x2 = x + (w // 2)
+    y2 = y + (h // 2)
+
+    return x1, y1, x2, y2

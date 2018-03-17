@@ -86,8 +86,10 @@ class _AnchorTargetLayer(nn.Module):
                 (all_anchors[:, 3] < long(im_info[0][0]) + self._allowed_border))
 
         inds_inside = torch.nonzero(keep).view(-1)
-
         # keep only inside anchors
+        # print(inds_inside.size())
+        inds_inside = torch.LongTensor([0, 1, 2]) \
+            if inds_inside.size() == torch.LongTensor([]).size() else inds_inside
         anchors = all_anchors[inds_inside, :]
 
         # label: 1 is positive, 0 is negative, -1 is dont care

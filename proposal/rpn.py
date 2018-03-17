@@ -60,15 +60,16 @@ class RPN(nn.Module):
             rpn_loss_bbox += loss_bbox_single
             roi_score = roi_single[:, :, 1]
             roi_bbox = roi_single[:, :, 2:]
-            rois_pre_nms.append(torch.cat((roi_bbox, roi_score), 1))
+            roi_score.unsqueeze_(-1)
+            rois_pre_nms.append(torch.cat((roi_bbox, roi_score), 2))
         # NxMx5. torch.cat() at axis M.
         rois_pre_nms = torch.cat(rois_pre_nms, 1)
-        rois = torch.zeros(batch_size, nms_output_num, 5)
+        rois = feature_maps[0].data.new(batch_size, nms_output_num, 5).zero_()
         # Apply nms to result of all pyramid rois.
         for i in range(batch_size):
-            keep_idx = nms(rois_pre_nms[i], cfg.RPN_NMS_THRESH)
+            keep_idx = nms(rois_pre_nms[i], cfg.TRAIN.RPN_NMS_THRESH)
             keep_idx = keep_idx[:nms_output_num]
-            rois_single = torch.cat([rois_pre_nms[i][idx] for idx in keep_idx])
+            rois_per_img = torch.cat([rois_pre_nms[i, idx, :].unsqueeze(0) for idx in keep_idx])
             rois[i, :, 0] = i
-            rois[i, :, 1:] = rois_single[:, :4]  # remove roi_score
+            rois[i, :rois_per_img.size(0), 1:] = rois_per_img[:, :4]  # remove roi_score
         return rois, rpn_loss_cls, rpn_loss_bbox
