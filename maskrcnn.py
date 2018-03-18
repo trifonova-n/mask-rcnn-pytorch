@@ -7,7 +7,6 @@ from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center, coord_
 
 import random
 import torch
-from torch import FloatTensor, ByteTensor, IntTensor
 from torch.autograd import Variable
 import torch.nn as nn
 from configparser import ConfigParser
@@ -258,17 +257,17 @@ class MaskRCNN(nn.Module):
             # In feature pyramid network paper, alpha is 224 and image short side 800 pixels,
             # for using of small image input, like maybe short side 256, here alpha is
             # parameterized by image short side size.
-            alpha = 224 // 800 * (img_width if img_width <= img_height else img_height)
-            bbox_width = torch.abs(FloatTensor([bbox[0] - bbox[2]]))
-            bbox_height = torch.abs(FloatTensor([bbox[1] - bbox[3]]))
-            log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(FloatTensor([2]))
-            log2 /= alpha
+            alpha = 224 * (img_width if img_width <= img_height else img_height) / 800
+            bbox_width = torch.abs(rois.new([bbox[0] - bbox[2]]).float())
+            bbox_height = torch.abs(rois.new([bbox[1] - bbox[3]]).float())
+            log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(
+                rois.new([2]).float()) / alpha
             level = torch.floor(4 + log2) - 2  # minus 2 to make level 0 indexed
             # Rois small or big enough may get level below 0 or above 3.
             level = int(torch.clamp(level, 0, 3))
             bbox = torch.unsqueeze(bbox, 0)
             roi_pool_per_box = self.roi_align(fpn_features[level], Variable(bbox),
-                                              Variable(IntTensor([int(bbox_indexes[idx])])))
+                                              Variable(rois.new([bbox_indexes[idx]]).int()))
             rois_pooling.append(roi_pool_per_box)
 
         rois_pooling = torch.cat(rois_pooling)
