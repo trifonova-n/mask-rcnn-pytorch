@@ -7,10 +7,13 @@ from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center, coord_
 
 import random
 import torch
-from torch.autograd import Variable
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
 from configparser import ConfigParser
 
+
+# TODO: optimize GPU memory consumption
 
 class MaskRCNN(nn.Module):
     """Mask R-CNN model.
@@ -21,8 +24,8 @@ class MaskRCNN(nn.Module):
         C: feature map channel, H: image height, W: image width,
         (x1, y1, x2, y2) stands for top-left and bottom-right coord of bounding box, 
         without normalization, (x, y, w, h) stands for center coord, height and 
-        width of bounding box.
-        
+        width of bounding box. 
+
     """
 
     def __init__(self, num_classes, img_size):
@@ -65,7 +68,6 @@ class MaskRCNN(nn.Module):
         img_shape[:, 1] = x.size(3)
         rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features_rpn, gt_bboxes, img_shape)
         cls_targets, bbox_targets, mask_targets = None, None, None
-
         if self.training:
             assert gt_classes is not None
             assert gt_bboxes is not None
@@ -73,19 +75,22 @@ class MaskRCNN(nn.Module):
             gen_result = self._generate_targets(rois, gt_classes, gt_bboxes, gt_masks)
             rois, cls_targets, bbox_targets, mask_targets = gen_result
 
-        rois_pooling = self._roi_align_fpn(fpn_features, rois, img_height=x.size(2),
-                                           img_width=x.size(3))
-
+        rois_pooling = self._roi_align_fpn(fpn_features, rois, x.size(2), x.size(3))
         cls_prob, bbox_reg = self.cls_box_head(rois_pooling)
         mask_prob = self.mask_head(rois_pooling)
-        loss = 0
+        result = self._process_result(x.size(0), rois, cls_prob, bbox_reg, mask_prob)
+
         if self.training:
+            # reshape back to (NxM) from NxM
+            cls_targets = cls_targets.view(-1)
+            bbox_targets = bbox_targets.view(-1, bbox_targets.size(2))
+            mask_targets = mask_targets.view(-1, mask_targets.size(2), mask_targets.size(3))
             maskrcnn_loss = calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets,
                                                bbox_targets, mask_targets)
             loss = rpn_loss_cls + rpn_loss_bbox + maskrcnn_loss
-        result = self._process_result(x.size(0), rois, cls_prob, bbox_reg, mask_prob)
-
-        return result, loss
+            return result, loss
+        else:
+            return result
 
     def _process_result(self, batch_size, proposals, cls_prob, bbox_reg, mask_prob):
         """Process heads output to get the final result.
@@ -132,7 +137,7 @@ class MaskRCNN(nn.Module):
               
         Returns: 
             rois: NxSx5(idx, x1, y1, x2, y2), rois to feed RoIAlign. 
-            cls_targets: NxSxNum_Classes, train targets for classification.
+            cls_targets: NxS, train targets for classification.
             bbox_targets: NxSx4(x, y, w, h), train targets for bounding box regression.  
             mask_targets: NxSxHxW, train targets for mask prediction.
             
@@ -140,48 +145,54 @@ class MaskRCNN(nn.Module):
             S: number of rois to train.
 
         """
-        train_rois_num = self.config['Train']['train_rois_num']
+        train_rois_num = int(self.config['Train']['train_rois_num'])
         batch_size = proposals.size(0)
         num_proposals = proposals.size(1)
         num_gt_bboxes = gt_bboxes.size(1)
-        height = gt_bboxes.size(2)
-        width = gt_bboxes.size(3)
-        rois = torch.zeros(batch_size, num_proposals, num_gt_bboxes, 2, 5)
-        cls_targets = gt_classes.new(batch_size, num_proposals, num_gt_bboxes, 2,
-                                     self.num_classes).zero_()
+        mask_size = (28, 28)
+        rois = proposals.new(batch_size, num_proposals, num_gt_bboxes, 2, 5).zero_()
+        cls_targets = gt_classes.new(batch_size, num_proposals, num_gt_bboxes, 2).zero_()
         bbox_targets = gt_bboxes.new(batch_size, num_proposals, num_gt_bboxes, 2, 4).zero_()
-        mask_targets = gt_masks.new(batch_size, num_proposals, num_gt_bboxes, 2, height,
-                                    width).zero_()
+        mask_targets = gt_masks.new(batch_size, num_proposals, num_gt_bboxes, 2, mask_size[0],
+                                    mask_size[1]).zero_()
         for i in range(batch_size):
             for j in range(num_proposals):
                 for k in range(num_gt_bboxes):
-                    iou = calc_iou(proposals[i, j, :1], gt_bboxes[i, k, :])
+                    iou = calc_iou(proposals[i, j, 1:], gt_bboxes[i, k, :])
                     pos_neg_idx = 1
                     if iou < 0.5:
                         pos_neg_idx = 0
                     rois[i, j, k, pos_neg_idx, :] = proposals[i, j, :]
-                    cls_targets[i, j, k, pos_neg_idx, :] = gt_classes[i, k, :]
-                    # Transform bbox coord from (x1, y1, x2, y2) to(x, y, w, h).
-                    x, y, w, h = coord_corner2center(proposals[i, j, :])
+                    cls_targets[i, j, k, pos_neg_idx] = gt_classes[i, k]
+                    # transform bbox coord from (x1, y1, x2, y2) to (x, y, w, h).
+                    x, y, w, h = coord_corner2center(proposals[i, j, 1:])
                     gt_x, gt_y, gt_w, gt_h = coord_corner2center(gt_bboxes[i, k, :])
+                    # calculate bbox regression targets, see RCNN paper for the formula.
                     tx, ty = (gt_x - x) / w, (gt_y - y) / h
-                    tw, th = torch.log(gt_w / w), torch.log(gt_h, h)
-                    bbox_targets[i, j, k, pos_neg_idx, :] = tx, ty, tw, th
-                    mask_targets[i, j, k, pos_neg_idx, :, :] = gt_masks[i, k, :, :]
+                    tw, th = torch.log(gt_w / w), torch.log(gt_h / h)
+                    bbox_targets[i, j, k, pos_neg_idx, :] = torch.cat([tx, ty, tw, th])
+                    # mask target is intersection between proposal and ground truth mask.
+                    # downsample to size typical 28x28.
+                    x1, y1, x2, y2 = proposals[i, j, 1:]
+                    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                    if x1 < x2 and y1 < y2:
+                        mask = gt_masks[i, k, x1:x2, y1:y2].unsqueeze(0)
+                        mask_resize = F.adaptive_avg_pool2d(Variable(mask), output_size=mask_size)
+                        mask_targets[i, j, k, pos_neg_idx, :, :] = mask_resize.data
 
         rois = rois.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        cls_targets = cls_targets.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
+        cls_targets = cls_targets.view(batch_size, num_proposals * num_gt_bboxes, 2)
         bbox_targets = bbox_targets.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
         mask_targets = mask_targets.view(batch_size, num_proposals * num_gt_bboxes, 2,
-                                         height, width)
+                                         mask_size[0], mask_size[1])
         # train_rois should have 1:3 positive negative ratio, see Mask R-CNN paper.
         rois_neg = rois[:, :, 0, :]
         rois_pos = rois[:, :, 1, :]
         rois_neg.squeeze_()
         rois_pos.squeeze_()
 
-        cls_targets_neg = cls_targets[:, :, 0, :]
-        cls_targets_pos = cls_targets[:, :, 1, :]
+        cls_targets_neg = cls_targets[:, :, 0]
+        cls_targets_pos = cls_targets[:, :, 1]
         cls_targets_neg.squeeze_()
         cls_targets_pos.squeeze_()
 
@@ -208,30 +219,21 @@ class MaskRCNN(nn.Module):
         rois_neg_sampled = rois_neg[:, sample_index_neg, :]
         rois_pos_sampled = rois_pos[:, sample_index_pos, :]
 
-        cls_targets_neg_sampled = cls_targets_neg[:, sample_index_neg, :]
-        cls_targets_pos_sampled = cls_targets_pos[:, sample_index_pos, :]
+        cls_targets_neg_sampled = cls_targets_neg[:, sample_index_neg]
+        cls_targets_pos_sampled = cls_targets_pos[:, sample_index_pos]
 
         bbox_targets_neg_sampled = bbox_targets_neg[:, sample_index_neg, :]
         bbox_targets_pos_sampled = bbox_targets_pos[:, sample_index_pos, :]
 
         mask_targets_pos_sampled = mask_targets_pos[:, sample_index_pos, :, :]
 
-        # Mask targets only define on positive rois, and are the intersection of
-        # roi with ground truth mask.
-        mask_targets = mask_targets_pos_sampled
-        for i in range(mask_targets.size(0)):
-            for j in range(mask_targets.size(1)):
-                x1, y1, x2, y2 = rois_pos_sampled[i, j, :]
-                mask_targets[i, j, :x1, :] = 0
-                mask_targets[i, j, :, :y1] = 0
-                mask_targets[i, j, x2:, :] = 0
-                mask_targets[i, j, :, y2:] = 0
-
         rois = torch.cat([rois_neg_sampled, rois_pos_sampled], 1)
         cls_targets = torch.cat([cls_targets_neg_sampled, cls_targets_pos_sampled], 1)
         bbox_targets = torch.cat([bbox_targets_neg_sampled, bbox_targets_pos_sampled], 1)
+        # mask targets only define on positive rois.
+        mask_targets = mask_targets_pos_sampled
 
-        return rois, cls_targets, bbox_targets, mask_targets
+        return rois, Variable(cls_targets), Variable(bbox_targets), Variable(mask_targets)
 
     def _roi_align_fpn(self, fpn_features, rois, img_width, img_height):
         """When use fpn backbone, set RoiAlign use different levels of fpn feature pyramid
@@ -251,10 +253,12 @@ class MaskRCNN(nn.Module):
         rois_reshape = rois.view(-1, rois.size(-1))
         bboxes = rois_reshape[:, 1:]
         bbox_indexes = rois_reshape[:, 0]
-        rois_pooling = []
-        # Iterate bbox to find which level of pyramid features to feed.
+        rois_pooling_batches = [[] for _ in range(rois.size(0))]
+        bbox_levels = [[] for _ in range(len(fpn_features))]
+        bbox_idx_levels = [[] for _ in range(len(fpn_features))]
+        # iterate bbox to find which level of pyramid features to feed.
         for idx, bbox in enumerate(bboxes):
-            # In feature pyramid network paper, alpha is 224 and image short side 800 pixels,
+            # in feature pyramid network paper, alpha is 224 and image short side 800 pixels,
             # for using of small image input, like maybe short side 256, here alpha is
             # parameterized by image short side size.
             alpha = 224 * (img_width if img_width <= img_height else img_height) / 800
@@ -263,15 +267,21 @@ class MaskRCNN(nn.Module):
             log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(
                 rois.new([2]).float()) / alpha
             level = torch.floor(4 + log2) - 2  # minus 2 to make level 0 indexed
-            # Rois small or big enough may get level below 0 or above 3.
+            # rois small or big enough may get level below 0 or above 3.
             level = int(torch.clamp(level, 0, 3))
-            bbox = torch.unsqueeze(bbox, 0)
-            roi_pool_per_box = self.roi_align(fpn_features[level], Variable(bbox),
-                                              Variable(rois.new([bbox_indexes[idx]]).int()))
-            rois_pooling.append(roi_pool_per_box)
+            bbox = bbox.type_as(bboxes).unsqueeze(0)
+            bbox_idx = rois.new([bbox_indexes[idx]]).int()
+            bbox_levels[level].append(bbox)
+            bbox_idx_levels[level].append(bbox_idx)
+        for level in range(len(fpn_features)):
+            if len(bbox_levels[level]) != 0:
+                bbox = Variable(torch.cat(bbox_levels[level]))
+                bbox_idx = Variable(torch.cat(bbox_idx_levels[level]))
+                roi_pool_per_level = self.roi_align(fpn_features[level], bbox, bbox_idx)
+                for idx, batch_idx in enumerate(bbox_idx_levels[level]):
+                    rois_pooling_batches[int(batch_idx)].append(roi_pool_per_level[idx])
 
-        rois_pooling = torch.cat(rois_pooling)
-        rois_pooling = rois_pooling.view(-1, rois_pooling.size(1), rois_pooling.size(2),
-                                         rois_pooling.size(3))
-        # rois_pooling size issues
+        rois_pooling = torch.cat([torch.cat(i) for i in rois_pooling_batches])
+        rois_pooling = rois_pooling.view(-1, fpn_features[0].size(1), rois_pooling.size(1),
+                                         rois_pooling.size(2))
         return rois_pooling

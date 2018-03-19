@@ -87,8 +87,8 @@ class _AnchorTargetLayer(nn.Module):
 
         inds_inside = torch.nonzero(keep).view(-1)
         # keep only inside anchors
-        # print(inds_inside.size())
-        inds_inside = torch.LongTensor([0, 1, 2]) \
+        # if there are no inside anchors, try choose first three.
+        inds_inside = inds_inside.new([0, 1, 2]) \
             if inds_inside.size() == torch.LongTensor([]).size() else inds_inside
         anchors = all_anchors[inds_inside, :]
 
