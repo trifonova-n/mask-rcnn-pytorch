@@ -1,13 +1,11 @@
-# maskrcnn-pytorch
+# Mask R-CNN implementation in PyTorch
 
-## (Currently, this project is under fast update state, will be fully available very soon.)
-
-Mask R-CNN implementation in PyTorch
+### (Currently, this project is under testing state, will be available soon.)
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 ## Usage
-(Will be available very soon.)
+(After testing finished, this will be available.)
 
 ```python
 from maskrcnn import MaskRCNN
@@ -16,7 +14,7 @@ mask_rcnn = MaskRCNN(num_classes=1000)
 
 def train():
     pass
-def predict():
+def test():
     pass
 ```
 
