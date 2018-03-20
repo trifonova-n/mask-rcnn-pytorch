@@ -5,6 +5,7 @@ from head.mask import MaskHead
 from pooling.roi_align import RoiAlign
 from util.utils import calc_iou, calc_maskrcnn_loss, coord_corner2center, coord_center2corner
 
+import os
 import random
 import torch
 import torch.nn as nn
@@ -13,6 +14,7 @@ from torch.autograd import Variable
 from configparser import ConfigParser
 
 
+# TODO: speed up training and inference
 # TODO: optimize GPU memory consumption
 
 class MaskRCNN(nn.Module):
@@ -31,7 +33,7 @@ class MaskRCNN(nn.Module):
     def __init__(self, num_classes, img_size):
         super(MaskRCNN, self).__init__()
         self.config = ConfigParser()
-        self.config.read("./config.ini")
+        self.config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini"))
         self.num_classes = num_classes
         self.fpn = ResNet_101_FPN()
         self.rpn = RPN(dim=256)
@@ -188,23 +190,14 @@ class MaskRCNN(nn.Module):
         # train_rois should have 1:3 positive negative ratio, see Mask R-CNN paper.
         rois_neg = rois[:, :, 0, :]
         rois_pos = rois[:, :, 1, :]
-        rois_neg.squeeze_()
-        rois_pos.squeeze_()
 
         cls_targets_neg = cls_targets[:, :, 0]
         cls_targets_pos = cls_targets[:, :, 1]
-        cls_targets_neg.squeeze_()
-        cls_targets_pos.squeeze_()
 
         bbox_targets_neg = bbox_targets[:, :, 0, :]
         bbox_targets_pos = bbox_targets[:, :, 1, :]
-        bbox_targets_neg.squeeze_()
-        bbox_targets_pos.squeeze_()
 
-        mask_targets_neg = mask_targets[:, :, 0, :, :]
         mask_targets_pos = mask_targets[:, :, 1, :, :]
-        mask_targets_neg.squeeze_()
-        mask_targets_pos.squeeze_()
 
         neg_num = rois_neg.size(1)
         pos_num = rois_pos.size(1)
