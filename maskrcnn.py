@@ -14,7 +14,6 @@ from torch.autograd import Variable
 from configparser import ConfigParser
 
 
-# TODO: speed up training and inference
 # TODO: optimize GPU memory consumption
 
 class MaskRCNN(nn.Module):
@@ -127,106 +126,123 @@ class MaskRCNN(nn.Module):
 
         return result
 
-    def _generate_targets(self, proposals, gt_classes, gt_bboxes, gt_masks):
-        """Process proposals from RPN to generate rois to feed predict heads, and
-            corresponding head targets.
+    def _generate_targets(self, proposals, gt_classes, gt_bboxes, gt_masks, mask_size=(28, 28)):
+        """ Generate Mask R-CNN targets, and corresponding rois.
         
         Args:
-            proposals: NxMx5(idx, x1, y1, x2, y2), proposals from RPN. 
-            gt_classes: NxR, ground truth class ids.
-            gt_bboxes: NxRx4(x1, y1, x2, y2), ground truth bounding boxes.
-            gt_masks: NxRxHxW, ground truth masks.  
+            proposals(Variable): [N, a, 5], proposals from RPN, dim3=(idx, x1, y1, x2, y2). 
+            gt_classes(Tensor): [N, b], ground truth class ids.
+            gt_bboxes(Tensor): [N, b, 4], ground truth bounding boxes, dim3=(x1, y1, x2, y2).
+            gt_masks(Tensor): [N, b, H, W], ground truth masks.  
               
         Returns: 
-            rois: NxSx5(idx, x1, y1, x2, y2), rois to feed RoIAlign. 
-            cls_targets: NxS, train targets for classification.
-            bbox_targets: NxSx4(x, y, w, h), train targets for bounding box regression.  
-            mask_targets: NxSxHxW, train targets for mask prediction.
+            rois(Variable): [N, c, 5], rois to feed RoIAlign. 
+            cls_targets(Variable): [N, c], train targets for classification.
+            bbox_targets(Variable): [N, c, 4], train targets for bounding box regression.  
+            mask_targets(Variable): [N, c, 28, 28], train targets for mask prediction.
             
-        Notes: In above, M: number of rois from FRN, R: number of ground truth objects,
-            S: number of rois to train.
+        Notes: In above, a: number of rois from FRN, b: number of ground truth objects,
+            c: number of rois to train.
 
         """
         train_rois_num = int(self.config['Train']['train_rois_num'])
         batch_size = proposals.size(0)
-        num_proposals = proposals.size(1)
-        num_gt_bboxes = gt_bboxes.size(1)
-        mask_size = (28, 28)
-        rois = proposals.new(batch_size, num_proposals, num_gt_bboxes, 2, 5).zero_()
-        cls_targets = gt_classes.new(batch_size, num_proposals, num_gt_bboxes, 2).zero_()
-        bbox_targets = gt_bboxes.new(batch_size, num_proposals, num_gt_bboxes, 2, 4).zero_()
-        mask_targets = gt_masks.new(batch_size, num_proposals, num_gt_bboxes, 2, mask_size[0],
-                                    mask_size[1]).zero_()
-        for i in range(batch_size):
-            for j in range(num_proposals):
-                for k in range(num_gt_bboxes):
-                    iou = calc_iou(proposals[i, j, 1:], gt_bboxes[i, k, :])
-                    pos_neg_idx = 1
-                    if iou < 0.5:
-                        pos_neg_idx = 0
-                    rois[i, j, k, pos_neg_idx, :] = proposals[i, j, :]
-                    cls_targets[i, j, k, pos_neg_idx] = gt_classes[i, k]
-                    # transform bbox coord from (x1, y1, x2, y2) to (x, y, w, h).
-                    x, y, w, h = coord_corner2center(proposals[i, j, 1:])
-                    gt_x, gt_y, gt_w, gt_h = coord_corner2center(gt_bboxes[i, k, :])
-                    # calculate bbox regression targets, see RCNN paper for the formula.
-                    tx, ty = (gt_x - x) / w, (gt_y - y) / h
-                    tw, th = torch.log(gt_w / w), torch.log(gt_h / h)
-                    bbox_targets[i, j, k, pos_neg_idx, :] = torch.cat([tx, ty, tw, th])
-                    # mask target is intersection between proposal and ground truth mask.
-                    # downsample to size typical 28x28.
-                    x1, y1, x2, y2 = proposals[i, j, 1:]
-                    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                    if x1 < x2 and y1 < y2:
-                        mask = gt_masks[i, k, x1:x2, y1:y2].unsqueeze(0)
-                        mask_resize = F.adaptive_avg_pool2d(Variable(mask), output_size=mask_size)
-                        mask_targets[i, j, k, pos_neg_idx, :, :] = mask_resize.data
+        # Todo: add support to use batch_size >= 1
+        assert batch_size == 1, "batch_size >= 2 will add support later."
 
-        rois = rois.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        cls_targets = cls_targets.view(batch_size, num_proposals * num_gt_bboxes, 2)
-        bbox_targets = bbox_targets.view(batch_size, num_proposals * num_gt_bboxes, 2, -1)
-        mask_targets = mask_targets.view(batch_size, num_proposals * num_gt_bboxes, 2,
-                                         mask_size[0], mask_size[1])
-        # train_rois should have 1:3 positive negative ratio, see Mask R-CNN paper.
-        rois_neg = rois[:, :, 0, :]
-        rois_pos = rois[:, :, 1, :]
+        proposals = proposals.squeeze(0)
+        gt_classes = gt_classes.squeeze(0)
+        gt_bboxes = gt_bboxes.squeeze(0)
+        gt_masks = gt_masks.squeeze(0)
 
-        cls_targets_neg = cls_targets[:, :, 0]
-        cls_targets_pos = cls_targets[:, :, 1]
-
-        bbox_targets_neg = bbox_targets[:, :, 0, :]
-        bbox_targets_pos = bbox_targets[:, :, 1, :]
-
-        mask_targets_pos = mask_targets[:, :, 1, :, :]
-
-        neg_num = rois_neg.size(1)
-        pos_num = rois_pos.size(1)
+        iou = calc_iou(proposals[:, 1:], gt_bboxes[:, :])
+        neg_index = torch.nonzero(iou < 0.5)
+        pos_index = torch.nonzero(iou >= 0.5)
+        neg_num = neg_index.size(0) if neg_index.size() != torch.LongTensor([]).size() else 0
+        pos_num = pos_index.size(0) if pos_index.size() != torch.LongTensor([]).size() else 0
         sample_size_neg = int(0.75 * train_rois_num)
         sample_size_pos = train_rois_num - sample_size_neg
         sample_size_neg = sample_size_neg if sample_size_neg <= neg_num else neg_num
         sample_size_pos = sample_size_pos if sample_size_pos <= pos_num else pos_num
-
         sample_index_neg = random.sample(range(neg_num), sample_size_neg)
         sample_index_pos = random.sample(range(pos_num), sample_size_pos)
+        neg_index_sampled = neg_index[sample_index_neg, :]
+        # if there is no positive iou, take some of negative.
+        pos_index_sampled = pos_index[sample_index_pos, :] if sample_size_pos != 0 \
+            else neg_index[0:2, :]
 
-        rois_neg_sampled = rois_neg[:, sample_index_neg, :]
-        rois_pos_sampled = rois_pos[:, sample_index_pos, :]
+        neg_index_proposal = neg_index_sampled[:, 0]
+        pos_index_proposal = pos_index_sampled[:, 0]
+        neg_index_gt = neg_index_sampled[:, 1]
+        pos_index_gt = pos_index_sampled[:, 1]
 
-        cls_targets_neg_sampled = cls_targets_neg[:, sample_index_neg]
-        cls_targets_pos_sampled = cls_targets_pos[:, sample_index_pos]
+        index_gt = torch.cat([neg_index_gt, pos_index_gt])
 
-        bbox_targets_neg_sampled = bbox_targets_neg[:, sample_index_neg, :]
-        bbox_targets_pos_sampled = bbox_targets_pos[:, sample_index_pos, :]
+        rois = torch.cat([proposals[neg_index_proposal, :], proposals[pos_index_proposal, :]])
 
-        mask_targets_pos_sampled = mask_targets_pos[:, sample_index_pos, :, :]
+        cls_targets = gt_classes[index_gt]
 
-        rois = torch.cat([rois_neg_sampled, rois_pos_sampled], 1)
-        cls_targets = torch.cat([cls_targets_neg_sampled, cls_targets_pos_sampled], 1)
-        bbox_targets = torch.cat([bbox_targets_neg_sampled, bbox_targets_pos_sampled], 1)
-        # mask targets only define on positive rois.
-        mask_targets = mask_targets_pos_sampled
+        proposals = proposals[:, 1:]
+
+        bbox_targets_neg = MaskRCNN.get_bbox_targets(proposals[neg_index_proposal, :],
+                                                     gt_bboxes[neg_index_gt, :])
+        bbox_targets_pos = MaskRCNN.get_bbox_targets(proposals[pos_index_proposal, :],
+                                                     gt_bboxes[pos_index_gt, :])
+        bbox_targets = torch.cat([bbox_targets_neg, bbox_targets_pos])
+        # mask targets define on positive proposals.
+        mask_targets = MaskRCNN.get_mask_targets(proposals[pos_index_proposal, :],
+                                                 gt_masks[pos_index_gt, :, :], mask_size)
+        rois = rois.unsqueeze(0)
+        cls_targets = cls_targets.unsqueeze(0)
+        bbox_targets = bbox_targets.unsqueeze(0)
+        mask_targets = mask_targets.unsqueeze(0)
 
         return rois, Variable(cls_targets), Variable(bbox_targets), Variable(mask_targets)
+
+    @staticmethod
+    def get_bbox_targets(proposals, gt_bboxes):
+        """ Calculate bounding box targets, input coord format is (left, top, right, bottom),
+            see RCNN paper for the formula.
+
+        Args:
+            proposals(Tensor): [n, 4]
+            gt_bboxes(Tensor): [n, 4]
+
+        Returns:
+            bbox_targets(Tensor): [n, 4]
+        """
+        proposals = coord_corner2center(proposals)
+        gt_bboxes = coord_corner2center(gt_bboxes)
+
+        x, y = ((gt_bboxes[:, :2] - proposals[:, :2]) / proposals[:, 2:]).chunk(2, dim=1)
+        w, h = torch.log(gt_bboxes[:, 2:] / proposals[:, 2:]).chunk(2, dim=1)
+        bbox_targets = torch.cat([x, y, w, h], dim=1)
+
+        return bbox_targets
+
+    @staticmethod
+    def get_mask_targets(proposals, gt_masks, mask_size):
+        """ Get mask targets, mask target is intersection between proposal and ground
+            truth mask, input coord format is (left, top, right, bottom).
+
+        Args:
+            proposals(Tensor): [n, 4]
+            gt_masks(Tensor): [n, H, W]
+            mask_size(tuple): 
+        Returns:
+            mask_targets(Tensor): [n, 28, 28]
+        """
+        n = proposals.size(0)
+        mask_targets = gt_masks.new(n, mask_size[0], mask_size[1]).zero_()
+        for i in range(n):
+            x1, y1, x2, y2 = proposals[i, :]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            if x1 < x2 and y1 < y2:
+                mask = Variable(gt_masks[i, x1:x2, y1:y2].unsqueeze(0), requires_grad=False)
+                mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
+                mask_targets[i, :, :] = mask_resize.data
+
+        return mask_targets
 
     def _roi_align_fpn(self, fpn_features, rois, img_width, img_height):
         """When use fpn backbone, set RoiAlign use different levels of fpn feature pyramid
