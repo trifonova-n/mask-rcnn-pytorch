@@ -3,7 +3,7 @@ from proposal.rpn import RPN
 from head.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from head.mask import MaskHead
 from pooling.roi_align import RoiAlign
-from util.utils import calc_iou, coord_corner2center, coord_center2corner
+from tools.utils import calc_iou, coord_corner2center, coord_center2corner
 
 import os
 import random

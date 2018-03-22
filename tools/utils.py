@@ -63,10 +63,10 @@ def coord_center2corner(bbox):
             center x, center y, width, height.
 
     Args:
-        bbox(Tensor): shape: [n, 4] 
+        bbox(Tensor): [n, 4] 
 
     Returns: 
-        bbox_trans(Tensor): shape: [n, 4]
+        bbox_trans(Tensor): [n, 4]
 
     """
     x, y, w, h = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
