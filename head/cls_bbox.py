@@ -59,7 +59,7 @@ class ClsBBoxHead_fcn(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.fc_cls = nn.Linear(1024, num_classes)
         self.fc_bbox = nn.Linear(1024, num_classes * 4)
-        self.log_softmax = nn.LogSoftmax()
+        self.log_softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, x):
         """

@@ -4,18 +4,18 @@ import math
 
 
 class MaskHead(nn.Module):
-    def __init__(self, depth, pool_size, num_classes, img_size):
+    def __init__(self, depth, pool_size, num_classes):
         super(MaskHead, self).__init__()
         self.depth = depth
-        self.pool_size = pool_size
         self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(self.depth, 256, kernel_size=3, padding=_calc_same_padding(img_size))
+        self.conv1 = nn.Conv2d(self.depth, 256, kernel_size=3,
+                               padding=_calc_same_padding(pool_size))
         self.bn1 = nn.BatchNorm2d(256)
-        self.conv2 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(img_size))
+        self.conv2 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(pool_size))
         self.bn2 = nn.BatchNorm2d(256)
-        self.conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(img_size))
+        self.conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(pool_size))
         self.bn3 = nn.BatchNorm2d(256)
-        self.conv4 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(img_size))
+        self.conv4 = nn.Conv2d(256, 256, kernel_size=3, padding=_calc_same_padding(pool_size))
         self.bn4 = nn.BatchNorm2d(256)
         self.deconv = nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2)
         self.conv5 = nn.Conv2d(256, num_classes, kernel_size=1)
@@ -31,6 +31,7 @@ class MaskHead(nn.Module):
         Returns:
             x: (NxM)xCxHxW, C encode mask class id.
         """
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

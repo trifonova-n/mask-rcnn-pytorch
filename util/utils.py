@@ -33,42 +33,6 @@ def calc_iou(bbox_a, bbox_b):
     return iou
 
 
-def calc_maskrcnn_loss(cls_prob, bbox_reg, mask_prob, cls_targets, bbox_targets,
-                       mask_targets):
-    """ Calculate Mask R-CNN loss.
-
-    Args:
-        cls_prob: (NxS)x num_classes, classification predict probability.
-        bbox_reg: (NxS)x num_classes x 4(dx, dy, dw, dh), bounding box regression.
-        mask_prob: (NxS)x num_classes x HxW, mask prediction.
-        cls_targets: (NxS), classification targets.
-        bbox_targets: (NxS)x4(dx, dy, dw, dh), bounding box regression targets.
-        mask_targets: (NxS)xHxW, mask targets.
-
-    Returns:
-        maskrcnn_loss: Total loss of Mask R-CNN predict heads.
-
-    Notes: In above, S: number of rois feed to prediction heads.
-
-    """
-    cls_loss = F.nll_loss(cls_prob, cls_targets)
-    _, cls_pred = torch.max(cls_prob, 1)
-    # Only predicted class masks contribute to bbox and mask loss.
-    bbox_loss, mask_loss = 0, 0
-    for i in range(cls_prob.size(0)):
-        cls_id = int(cls_pred[i])
-        bbox_loss += F.smooth_l1_loss(bbox_reg[i, cls_id, :], bbox_targets[i, :])
-    # last part is positive roi, contribute to mask loss.
-    for i in range(mask_targets.size(0)):
-        start = cls_pred.size(0) - mask_targets.size(0)
-        cls_id = int(cls_pred[start + i])
-        mask_loss += F.binary_cross_entropy(mask_prob[start + i, cls_id, :, :],
-                                            mask_targets[i, :, :])
-    maskrcnn_loss = cls_loss + bbox_loss + mask_loss
-
-    return maskrcnn_loss
-
-
 def coord_corner2center(bbox):
     """ Transform corner format coord (x1, y1, x2, y2) to center format (x, y, w, h). 
         (x1, y1, x2, y2) stands for left, top, right, bottom, (x, y, w, h) stands for
