@@ -1,8 +1,6 @@
 from backbone.resnet_101_fpn import ResNet_101_FPN
-from proposal.rpn import RPN
 from head.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from head.mask import MaskHead
-from pooling.roi_align import RoiAlign
 from tools.utils import calc_iou, coord_corner2center, coord_center2corner
 
 import os
@@ -12,6 +10,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from configparser import ConfigParser
+
+if not __debug__:
+    # when not doing unittest import below module.
+    from proposal.rpn import RPN
+    from pooling.roi_align import RoiAlign
 
 
 # TODO: optimize GPU memory consumption
@@ -98,18 +101,22 @@ class MaskRCNN(nn.Module):
         """ Generate Mask R-CNN targets, and corresponding rois.
 
         Args:
-            proposals(Variable): [N, a, 5], proposals from RPN, dim3=(idx, x1, y1, x2, y2). 
+            proposals(Variable): [N, a, (idx, x1, y1, x2, y2)], proposals from RPN, idx is batch
+                size index. 
             gt_classes(Tensor): [N, b], ground truth class ids.
-            gt_bboxes(Tensor): [N, b, 4], ground truth bounding boxes, dim3=(x1, y1, x2, y2).
-            gt_masks(Tensor): [N, b, H, W], ground truth masks.  
+            gt_bboxes(Tensor): [N, b, (x1, y1, x2, y2)], ground truth bounding boxes.
+            gt_masks(Tensor): [N, b, H, W], ground truth masks, H and W for origin image height 
+                and width.  
 
         Returns: 
-            rois(Variable): [N, c, 5], rois to feed RoIAlign. 
+            rois(Variable): [N, c, (idx, x1, y1, x2, y2)], proposals after process to feed 
+              RoIAlign. 
             cls_targets(Variable): [N, c], train targets for classification.
-            bbox_targets(Variable): [N, c, 4], train targets for bounding box regression.  
+            bbox_targets(Variable): [N, c, (dx, dy, dw, dh)], train targets for bounding box 
+                regression, see R-CNN paper for meaning details.  
             mask_targets(Variable): [N, c, 28, 28], train targets for mask prediction.
 
-        Notes: In above, a: number of rois from FRN, b: number of ground truth objects,
+        Notes: N: batch_size, a: number of proposals from FRN, b: number of ground truth objects,
             c: number of rois to train.
 
         """
@@ -220,8 +227,13 @@ class MaskRCNN(nn.Module):
         return rois_pooling
 
     def _process_result(self, batch_size, proposals, cls_prob, bbox_reg, mask_prob):
-        """Process heads output to get the final result.
-
+        """ Process heads output to get the final result.
+        Args:
+            batch_size:
+            proposals: [(NxM), (x1, y1, x2, y2)]
+            cls_prob: [(NxM),  num_classes]
+            bbox_reg: [(NxM), num_classes, (x1, y1, x2, y2)]
+            mask_prob: [(NxM), num_classes, 28, 28]
         """
 
         result = []
@@ -231,37 +243,50 @@ class MaskRCNN(nn.Module):
         mask_prob = mask_prob.view(batch_size, -1, mask_prob.size(1), mask_prob.size(2),
                                    mask_prob.size(3))
         cls_id_prob, cls_id = torch.max(cls_prob, 2)
-        cls_threshold = float(self.config['Test']['cls_threshold'])
         # remove background and predicted ids whose probability below threshold.
-        keep_index = (cls_id > 0) & (cls_id_prob >= cls_threshold)
-        for i in range(cls_prob.size(0)):
-            objects = []
-            for j in range(cls_prob.size(1)):
-                pred_dict = {'cls_pred': None, 'bbox_pred': None, 'mask_pred': None}
-                if keep_index[i, j].all():
-                    pred_dict['cls_pred'] = cls_id[i, j]
-                    dx, dy, dw, dh = bbox_reg[i, j, cls_id[i, j], :]
-                    x, y, w, h = coord_corner2center(proposals[i, j, :])
-                    px, py = w * dx + x, h * dy + y
-                    pw, ph = w * torch.exp(dw), h * torch.exp(dh)
-                    px1, py1, px2, py2 = coord_center2corner((px, py, pw, ph))
-                    pred_dict['bbox_pred'] = (px1, py1, px2, py2)
-                    mask_threshold = self.config['Test']['mask_threshold']
-                    mask = Variable(mask_prob[i, j] >= mask_threshold, require_grad=False)
-                    mask_height, mask_width = py2 - py1, px2 - px1
-                    mask_resize = F.upsample(mask, (mask_height, mask_width)).data
-                    mask_pred = mask_resize.new(self.image_size).zero_()
-                    mask_pred[px1:px2, py1:py2] = mask_resize
-                    pred_dict['mask_pred'] = mask_pred
-                objects.append(pred_dict)
-            result.append(objects)
+        keep_index = (cls_id > 0)
+        # Todo: support batch_size > 1.
+        assert batch_size == 1, "batch_size > 1 will support later"
+
+        keep_index = keep_index.squeeze(0)
+        proposals = proposals.squeeze(0)
+        cls_prob = cls_prob.squeeze(0)
+        bbox_reg = bbox_reg.squeeze(0)
+        mask_prob = mask_prob.squeeze(0)
+
+        objects = []
+        for i in range(cls_prob.size(1)):
+            pred_dict = {'cls_pred': None, 'bbox_pred': None, 'mask_pred': None}
+            if keep_index[i].all():
+                pred_dict['cls_pred'] = cls_id[i]
+                print("cls_id[i]: ", cls_id[i].size())
+                bbox_reg_per_roi = bbox_reg[i, :, :]
+                print("bbox_reg_per_roi :", bbox_reg_per_roi.size())
+                print("bbox_reg_per_roi[cls_id[i], :] :", bbox_reg_per_roi[cls_id[i], :].size())
+                dx, dy, dw, dh = bbox_reg_per_roi[cls_id[i], :]
+                x, y, w, h = coord_corner2center(proposals[i, :])
+                px, py = w * dx + x, h * dy + y
+                pw, ph = w * torch.exp(dw), h * torch.exp(dh)
+                px1, py1, px2, py2 = coord_center2corner((px, py, pw, ph))[0, :]
+                pred_dict['bbox_pred'] = (px1, py1, px2, py2)
+                mask_threshold = self.config['Test']['mask_threshold']
+                mask_prob_per_roi = mask_prob[i, :, :, :]
+                mask = Variable(mask_prob_per_roi[cls_id[i], :, :] >= mask_threshold,
+                                require_grad=False)
+                mask_height, mask_width = py2 - py1, px2 - px1
+                mask_resize = F.upsample(mask, (mask_height, mask_width)).data
+                mask_pred = mask_resize.new(self.image_size).zero_()
+                mask_pred[px1:px2, py1:py2] = mask_resize
+                pred_dict['mask_pred'] = mask_pred
+            objects.append(pred_dict)
+        result.append(objects)
 
         return result
 
     @staticmethod
     def _get_bbox_targets(proposals, gt_bboxes):
         """ Calculate bounding box targets, input coord format is (left, top, right, bottom),
-            see RCNN paper for the formula.
+            see R-CNN paper for the formula.
 
         Args:
             proposals(Tensor): [n, 4]
@@ -287,7 +312,7 @@ class MaskRCNN(nn.Module):
         Args:
             proposals(Tensor): [n, 4]
             gt_masks(Tensor): [n, H, W]
-            mask_size(tuple): 
+            mask_size(tuple): (mask_height, mask_width)
         Returns:
             mask_targets(Tensor): [n, 28, 28]
         """

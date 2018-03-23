@@ -16,9 +16,9 @@ def calc_iou(bbox_a, bbox_b):
     a = bbox_a.size(0)
     b = bbox_b.size(0)
 
-    area_a = (bbox_a[:, 2] - bbox_a[:, 0] + 1) * (bbox_a[:, 3] - bbox_a[:, 1] + 1)
+    area_a = (bbox_a[:, 2] - bbox_a[:, 0]) * (bbox_a[:, 3] - bbox_a[:, 1])
     area_a = area_a.unsqueeze(1).expand(a, b)  # [a, b]
-    area_b = (bbox_b[:, 2] - bbox_b[:, 0] + 1) * (bbox_b[:, 3] - bbox_b[:, 1] + 1)
+    area_b = (bbox_b[:, 2] - bbox_b[:, 0]) * (bbox_b[:, 3] - bbox_b[:, 1])
     area_b = area_b.unsqueeze(0).expand(a, b)  # [a, b]
 
     bbox_a = bbox_a.unsqueeze(1).expand(a, b, 4)  # [a, b, 4]
@@ -39,18 +39,18 @@ def coord_corner2center(bbox):
         center x, center y, width, height.
         
     Args:
-        bbox(Tensor): shape: [n, 4] 
+        bbox(Tensor): [n, 4] 
 
     Returns: 
-        bbox_trans(Tensor): shape: [n, 4]
+        bbox_trans(Tensor): [n, 4]
         
     """
     x1, y1, x2, y2 = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
-    x = torch.floor((x2 - x1 + 1) / 2.0) + x1
-    y = torch.floor((y2 - y1 + 1) / 2.0) + y1
+    x = torch.floor((x2 - x1) / 2) + x1
+    y = torch.floor((y2 - y1) / 2) + y1
 
-    w = (x2 - x1) + 1
-    h = (y2 - y1) + 1
+    w = x2 - x1
+    h = y2 - y1
 
     x.unsqueeze_(1), y.unsqueeze_(1), w.unsqueeze_(1), h.unsqueeze_(1)
     bbox_trans = torch.cat([x, y, w, h], dim=1)

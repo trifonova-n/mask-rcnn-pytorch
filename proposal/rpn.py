@@ -44,7 +44,7 @@ class RPN(nn.Module):
              rpn_loss_cls: Classification loss
              rpn_loss_bbox: Bounding box regression loss
         """
-        batch_size = gt_bboxes.size(0)
+        batch_size = feature_maps[0].size(0)
         nms_output_num = cfg.TEST.RPN_POST_NMS_TOP_N
         if self.training:
             nms_output_num = cfg.TRAIN.RPN_POST_NMS_TOP_N
