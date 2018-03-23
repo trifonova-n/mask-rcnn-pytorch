@@ -2,6 +2,8 @@ from backbone.resnet_101_fpn import ResNet_101_FPN
 from head.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from head.mask import MaskHead
 from tools.utils import calc_iou, coord_corner2center, coord_center2corner
+from proposal.rpn import RPN
+from pooling.roi_align import RoiAlign
 
 import os
 import random
@@ -11,21 +13,17 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from configparser import ConfigParser
 
-if not __debug__:
-    # when not doing unittest import below module.
-    from proposal.rpn import RPN
-    from pooling.roi_align import RoiAlign
-
 
 # TODO: optimize GPU memory consumption
+# TODO: add support for batch size > 1.
 
 class MaskRCNN(nn.Module):
     """Mask R-CNN model.
     
     References: https://arxiv.org/pdf/1703.06870.pdf
     
-    Notes: In comments below, we assume N: batch size C: feature map channel, H: image height, 
-        W: image width.
+    Notes: In comments below, we assume N: batch size C: number of feature map channel, H: image 
+        height, W: image width.
 
     """
 
@@ -57,7 +55,7 @@ class MaskRCNN(nn.Module):
             result(list of lists of dict): Outer list composed of mini-batch, inner list 
                 composed of detected objects per image, dict composed of "cls_pred": class id,
                 "bbox_pred" : bounding-box with tuple (x1, y1, x2, y2), "mask_pred" : mask 
-                prediction with tuple (H,W).
+                prediction.
                 
                 So, result[0][0]['cls_pred'] stands for class id of the first detected objects
                 in first image of mini-batch.
@@ -229,11 +227,11 @@ class MaskRCNN(nn.Module):
     def _process_result(self, batch_size, proposals, cls_prob, bbox_reg, mask_prob):
         """ Process heads output to get the final result.
         Args:
-            batch_size:
-            proposals: [(NxM), (x1, y1, x2, y2)]
-            cls_prob: [(NxM),  num_classes]
-            bbox_reg: [(NxM), num_classes, (x1, y1, x2, y2)]
-            mask_prob: [(NxM), num_classes, 28, 28]
+            batch_size(int):
+            proposals(Tensor): [(NxM), (x1, y1, x2, y2)]
+            cls_prob(Variable): [(NxM),  num_classes]
+            bbox_reg(Variable): [(NxM), num_classes, (x1, y1, x2, y2)]
+            mask_prob(Variable): [(NxM), num_classes, 28, 28]
         """
 
         result = []
@@ -249,6 +247,7 @@ class MaskRCNN(nn.Module):
         assert batch_size == 1, "batch_size > 1 will support later"
 
         keep_index = keep_index.squeeze(0)
+        cls_id = cls_id.squeeze(0)
         proposals = proposals.squeeze(0)
         cls_prob = cls_prob.squeeze(0)
         bbox_reg = bbox_reg.squeeze(0)
@@ -257,26 +256,37 @@ class MaskRCNN(nn.Module):
         objects = []
         for i in range(cls_prob.size(1)):
             pred_dict = {'cls_pred': None, 'bbox_pred': None, 'mask_pred': None}
-            if keep_index[i].all():
+            if int(keep_index[i]):
                 pred_dict['cls_pred'] = cls_id[i]
-                print("cls_id[i]: ", cls_id[i].size())
-                bbox_reg_per_roi = bbox_reg[i, :, :]
-                print("bbox_reg_per_roi :", bbox_reg_per_roi.size())
-                print("bbox_reg_per_roi[cls_id[i], :] :", bbox_reg_per_roi[cls_id[i], :].size())
-                dx, dy, dw, dh = bbox_reg_per_roi[cls_id[i], :]
-                x, y, w, h = coord_corner2center(proposals[i, :])
+                bbox_reg_keep = bbox_reg[i, :, :]
+                bbox_reg_keep_cls = bbox_reg_keep[cls_id[i], :]
+                dx, dy, dw, dh = bbox_reg_keep_cls[0, :]
+                proposal_keep = proposals[i, 1:].unsqueeze(0)
+                proposal_keep = coord_corner2center(proposal_keep)
+                x, y, w, h = proposal_keep[0, :]
                 px, py = w * dx + x, h * dy + y
                 pw, ph = w * torch.exp(dw), h * torch.exp(dh)
-                px1, py1, px2, py2 = coord_center2corner((px, py, pw, ph))[0, :]
+                bbox_pred = proposals.new([int(px), int(py), int(pw), int(ph)]).unsqueeze(0)
+                bbox_pred = coord_center2corner(bbox_pred)
+
+                px1, py1, px2, py2 = bbox_pred[0, :]
+                px1 = min(max(px1, 0), self.image_size[0] - 1)
+                px2 = min(max(px2, 0), self.image_size[0] - 1)
+                py1 = min(max(py1, 0), self.image_size[1] - 1)
+                py2 = min(max(py2, 0), self.image_size[1] - 1)
+                mask_height, mask_width = int(py2 - py1), int(px2 - px1)
+
+                if mask_height == 0 or mask_width == 0:
+                    continue
                 pred_dict['bbox_pred'] = (px1, py1, px2, py2)
-                mask_threshold = self.config['Test']['mask_threshold']
+
+                mask_threshold = float(self.config['Test']['mask_threshold'])
                 mask_prob_per_roi = mask_prob[i, :, :, :]
-                mask = Variable(mask_prob_per_roi[cls_id[i], :, :] >= mask_threshold,
-                                require_grad=False)
-                mask_height, mask_width = py2 - py1, px2 - px1
-                mask_resize = F.upsample(mask, (mask_height, mask_width)).data
-                mask_pred = mask_resize.new(self.image_size).zero_()
-                mask_pred[px1:px2, py1:py2] = mask_resize
+                mask = (mask_prob_per_roi[cls_id[i], :, :] >= mask_threshold).float()
+                mask.unsqueeze_(1)  # add channel dim
+                mask_resize = F.adaptive_avg_pool2d(mask, (mask_height, mask_width)).data
+                mask_pred = mask_resize.new(self.image_size[0], self.image_size[1]).zero_()
+                mask_pred[int(px1):int(px2), int(py1):int(py2)] = mask_resize
                 pred_dict['mask_pred'] = mask_pred
             objects.append(pred_dict)
         result.append(objects)
