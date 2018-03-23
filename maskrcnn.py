@@ -130,11 +130,22 @@ class MaskRCNN(nn.Module):
         gt_masks = gt_masks.squeeze(0)
 
         iou = calc_iou(proposals[:, 1:], gt_bboxes[:, :])
-        neg_index = torch.nonzero(iou < 0.5)
+        neg_index = torch.nonzero((iou < 0.5) & (iou > 0))
         pos_index = torch.nonzero(iou >= 0.5)
-        # check if neg_index is empty
-        neg_num = neg_index.size(0) if neg_index.size() != torch.LongTensor([]).size() else 0
-        pos_num = pos_index.size(0) if pos_index.size() != torch.LongTensor([]).size() else 0
+        # if neg_index pos_index is empty, treat image as background.
+        if neg_index.size() == torch.LongTensor([]).size() or pos_index.size() == \
+                torch.LongTensor([]).size():
+            cls_targets = gt_classes.new([0])
+            bbox_targets = gt_bboxes.new([[0, 0, self.image_size[0] - 1, self.image_size[1] - 1]])
+            mask_targets = gt_masks.new(1, 28, 28).zero_()
+            cls_targets = cls_targets.unsqueeze(0)
+            bbox_targets = bbox_targets.unsqueeze(0)
+            mask_targets = mask_targets.unsqueeze(0)
+            rois = proposals[0, :].unsqueeze(0)
+
+            return rois, Variable(cls_targets), Variable(bbox_targets), Variable(mask_targets)
+        neg_num = neg_index.size(0)
+        pos_num = pos_index.size(0)
         sample_size_neg = int(0.75 * train_rois_num)
         sample_size_pos = train_rois_num - sample_size_neg
         sample_size_neg = sample_size_neg if sample_size_neg <= neg_num else neg_num
@@ -143,26 +154,26 @@ class MaskRCNN(nn.Module):
         sample_index_pos = random.sample(range(pos_num), sample_size_pos)
         neg_index_sampled = neg_index[sample_index_neg, :]
 
-        # if there is no positive iou, take some of negative.
-        if sample_size_pos != 0:
-            pos_index_sampled = pos_index[sample_index_pos, :]
-        else:
-            pos_index_sampled = neg_index[0:2, :]
+        # # if there is no positive iou, take some of negative.
+        # if sample_size_pos != 0:
+        #     pos_index_sampled = pos_index[sample_index_pos, :]
+        # else:
+        #     pos_index_sampled = neg_index[0:2, :]
 
+        pos_index_sampled = pos_index[sample_index_pos, :]
         neg_index_proposal = neg_index_sampled[:, 0]
         pos_index_proposal = pos_index_sampled[:, 0]
         neg_index_gt = neg_index_sampled[:, 1]
         pos_index_gt = pos_index_sampled[:, 1]
         index_gt = torch.cat([neg_index_gt, pos_index_gt])
-
+        # positive rois should in
         rois = torch.cat([proposals[neg_index_proposal, :], proposals[pos_index_proposal, :]])
         cls_targets = gt_classes[index_gt]
         proposals = proposals[:, 1:]
-        bbox_targets_neg = MaskRCNN._get_bbox_targets(proposals[neg_index_proposal, :],
-                                                      gt_bboxes[neg_index_gt, :])
-        bbox_targets_pos = MaskRCNN._get_bbox_targets(proposals[pos_index_proposal, :],
-                                                      gt_bboxes[pos_index_gt, :])
-        bbox_targets = torch.cat([bbox_targets_neg, bbox_targets_pos])
+
+        # bbox targets define on positive proposals. Todo: bbox targets change to iou > 0.6
+        bbox_targets = MaskRCNN._get_bbox_targets(proposals[pos_index_proposal, :],
+                                                  gt_bboxes[pos_index_gt, :])
         # mask targets define on positive proposals.
         mask_targets = MaskRCNN._get_mask_targets(proposals[pos_index_proposal, :],
                                                   gt_masks[pos_index_gt, :, :], mask_size)
@@ -348,7 +359,7 @@ class MaskRCNN(nn.Module):
             mask_prob: (NxS)x num_classes x HxW, mask prediction.
             cls_targets: (NxS), classification targets.
             bbox_targets: (NxS)x4(dx, dy, dw, dh), bounding box regression targets.
-            mask_targets: (NxS)xHxW, mask targets.
+            mask_targets: (Nxpositive)xHxW, mask targets.
     
         Returns:
             maskrcnn_loss: Total loss of Mask R-CNN predict heads.
@@ -360,15 +371,19 @@ class MaskRCNN(nn.Module):
         _, cls_pred = torch.max(cls_prob, 1)
         # Only predicted class masks contribute to bbox and mask loss.
         bbox_loss, mask_loss = 0, 0
-        for i in range(cls_prob.size(0)):
-            cls_id = int(cls_pred[i])
-            bbox_loss += F.smooth_l1_loss(bbox_reg[i, cls_id, :], bbox_targets[i, :])
-        # last part is positive roi, contribute to mask loss.
-        for i in range(mask_targets.size(0)):
-            start = cls_pred.size(0) - mask_targets.size(0)
+        for i in range(bbox_targets.size(0)):
+            start = bbox_reg.size(0) - bbox_targets.size(0)
             cls_id = int(cls_pred[start + i])
-            mask_loss += F.binary_cross_entropy(mask_prob[start + i, cls_id, :, :],
-                                                mask_targets[i, :, :])
+            if cls_id != 0:
+                # when predict background, skip compute loss.
+                bbox_loss += F.smooth_l1_loss(bbox_reg[start + i, cls_id, :], bbox_targets[i, :])
+        for i in range(mask_targets.size(0)):
+            # only positive roi, contribute to mask loss.
+            start = mask_prob.size(0) - mask_targets.size(0)
+            cls_id = int(cls_pred[start + i])
+            # when predict background, skip compute loss.
+            if cls_id != 0:
+                mask_loss += F.binary_cross_entropy(mask_prob[start + i, cls_id, :, :],
+                                                    mask_targets[i, :, :])
         maskrcnn_loss = cls_loss + bbox_loss + mask_loss
-
         return maskrcnn_loss
