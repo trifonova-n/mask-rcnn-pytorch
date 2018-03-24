@@ -1,7 +1,10 @@
 """
 Display and Visualization Functions.
 
-Copyright (c) 2017 Matterport, Inc.
+Modified work: Copyright (c) 2018 Geeshang Xu
+Licensed under the MIT License (see LICENSE for details)
+
+Original work: Copyright (c) 2017 Matterport, Inc.
 Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
@@ -320,10 +323,10 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     """Draw bounding boxes and segmentation masks with differnt
     customizations.
 
-    boxes: [N, (y1, x1, y2, x2, class_id)] in image coordinates.
-    refined_boxes: Like boxes, but draw with solid lines to show
+    boxes(np.array): [N, (x1, y1, y1, y2)] draw dash-line, in image coordinates.
+    refined_boxes: [N, (x1, y1, y1, y2)], draw with solid lines to show
         that they're the result of refining 'boxes'.
-    masks: [N, height, width]
+    masks(np.array): [N, height, width]
     captions: List of N titles to display on each box
     visibilities: (optional) List of values of 0, 1, or 2. Determine how
         prominant each bounding box should be.
@@ -371,7 +374,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
             if not np.any(boxes[i]):
                 # Skip this instance. Has no bbox. Likely lost in cropping.
                 continue
-            y1, x1, y2, x2 = boxes[i]
+            x1, y1, x2, y2 = boxes[i]
             p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
                                   alpha=alpha, linestyle=style,
                                   edgecolor=color, facecolor='none')
@@ -379,7 +382,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
 
         # Refined boxes
         if refined_boxes is not None and visibility > 0:
-            ry1, rx1, ry2, rx2 = refined_boxes[i].astype(np.int32)
+            rx1, ry1, rx2, ry2,  = refined_boxes[i].astype(np.int32)
             p = patches.Rectangle((rx1, ry1), rx2 - rx1, ry2 - ry1, linewidth=2,
                                   edgecolor=color, facecolor='none')
             ax.add_patch(p)
@@ -401,7 +404,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
 
         # Masks
         if masks is not None:
-            mask = masks[:, :, i]
+            mask = masks[i, :, :]
             masked_image = apply_mask(masked_image, mask, color)
             # Mask Polygon
             # Pad to ensure proper polygons for masks that touch image edges.
