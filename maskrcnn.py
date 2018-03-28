@@ -25,21 +25,25 @@ class MaskRCNN(nn.Module):
 
     """
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, pretrained=None):
         super(MaskRCNN, self).__init__()
+        if pretrained is not None:
+            assert pretrained in ['imagenet', 'voc2007', 'coco']
+            assert pretrained not in ['voc2007', 'coco'], ("VOC2007 and COCO pretrained weights "
+                                                           "will be added soon.")
         self.config = ConfigParser()
         self.config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini"))
         self.num_classes = num_classes
         self.pooling_size_clsbbox = (7, 7)
         self.pooling_size_mask = (14, 14)
-        self.use_fpn = False
+        self.use_fpn = False  # FPN backbone feature is debugging right now.
         self.train_rpn_only = False
 
         if self.use_fpn:
-            self.backbone_fpn = ResNet_101_FPN()
+            self.backbone_fpn = ResNet_101_FPN(pretrained=pretrained)
             self.depth = 256
         else:
-            self.backbone = ResNet_101()
+            self.backbone = ResNet_101(pretrained=pretrained)
             self.depth = 1024
 
         self.rpn = RPN(dim=self.depth, use_fpn=self.use_fpn)
@@ -197,8 +201,8 @@ class MaskRCNN(nn.Module):
 
         iou = calc_iou(proposals[:, 1:], gt_bboxes[:, :])
         max_iou, max_iou_idx_gt = torch.max(iou, dim=1)
-        pos_index_prop = torch.nonzero(max_iou >= 0.5).view(-1)
-        neg_index_prop = torch.nonzero(max_iou < 0.5).view(-1)
+        pos_index_prop = torch.nonzero(max_iou >= 0.6).view(-1)
+        neg_index_prop = torch.nonzero(max_iou < 0.4).view(-1)
 
         # if pos_index_prop or neg_index_prop is empty, return an background.
         if pos_index_prop.numel() == 0 or neg_index_prop.numel() == 0:
@@ -432,15 +436,17 @@ class MaskRCNN(nn.Module):
         img_width = gt_masks.size(3)
         mask_targets = gt_masks.new(num_rois, mask_size[0], mask_size[1]).zero_()
         for i in range(num_rois):
-            x1, y1, x2, y2 = proposals[i, :]
-            x1 = int(max(min(img_width - 1, x1), 0))
-            x2 = int(max(min(img_width - 1, x2), 0))
-            y1 = int(max(min(img_height - 1, y1), 0))
-            y2 = int(max(min(img_height - 1, y2), 0))
-            mask = Variable(gt_masks[i, :, y1:y2, x1:x2], requires_grad=False)
-            mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
-            mask_targets[i, :, :] = mask_resize.data[0, :, :]
-
+            try:
+                x1, y1, x2, y2 = proposals[i, :]
+                x1 = int(max(min(img_width - 1, x1), 0))
+                x2 = int(max(min(img_width - 1, x2), 0))
+                y1 = int(max(min(img_height - 1, y1), 0))
+                y2 = int(max(min(img_height - 1, y2), 0))
+                mask = Variable(gt_masks[i, :, y1:y2, x1:x2], requires_grad=False)
+                mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
+                mask_targets[i, :, :] = mask_resize.data[0, :, :]
+            except ValueError:
+                print(x1, y1, x2, y2)
         return mask_targets
 
     @staticmethod

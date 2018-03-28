@@ -3,8 +3,7 @@
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 ## Usage
-(This project is almost finished, user interface needs to be redesigned, install instruction, 
-usage and examples are on the road, will be fully usable in few days.)
+(Usage and examples will update soon.)
 
 ```python
 from maskrcnn import MaskRCNN
@@ -36,11 +35,7 @@ Source directories are arranged according to internal models or execution proces
 model, trying to decouple these models or processes to make it easy for adding experimental 
 variants.
 
-1. backbones: Models to extract feature map.
-2. proposal: Methods or models to propose RoIs.
-3. pooling: Methods or models to get the fixed dimensional representation of RoIs.
-4. heads: Prediction head models to get the class id, refined bounding box, and mask.
-
+![dirs-relationship](http://chuantu.biz/t6/267/1522230494x-1404795469.jpg)
 
 #### 1. backbones: 
 

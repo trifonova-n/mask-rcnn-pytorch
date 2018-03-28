@@ -3,13 +3,16 @@ import torch.nn as nn
 
 
 class ResNet_101(nn.Module):
-    """ResNet 101 backbone to extract features, using c5.
+    """ResNet 101 FPN backbone feature map extractor..
     
     """
 
-    def __init__(self):
+    def __init__(self, pretrained=None):
         super(ResNet_101, self).__init__()
-        self.resnet = resnet101(pretrained=True)
+        if pretrained == 'imagenet':
+            self.resnet = resnet101(pretrained=True)
+        else:
+            self.resnet = resnet101()
 
     def forward(self, x):
         x = self.resnet.conv1(x)
@@ -21,4 +24,5 @@ class ResNet_101(nn.Module):
         x = self.resnet.layer2(x)
         c4 = self.resnet.layer3(x)
         # c5 = self.resnet.layer4(c4)
+
         return c4
