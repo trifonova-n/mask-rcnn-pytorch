@@ -13,6 +13,7 @@ from torch.utils.data import Dataset
 # use pretrained weights: 
 # 1) "imagenet", just backbone feature map extractor trained on ImageNet.
 # 2) "coco", whole maskrcnn model pretrained on COCO.
+
 mask_rcnn = MaskRCNN(num_classes=1000, pretrained="imagenet") 
 
 class OneDataset(Dataset):
@@ -29,11 +30,21 @@ def test():
     pass
 ```
 
-## Source directory explain
+## Source directory
 
-#### 1. backbone: 
+Source directories are arranged according to internal models or execution process of Mask R-CNN 
+model, trying to decouple these models or processes to make it easy for adding experimental 
+variants.
 
-Several feature map extractor backbone models support Mask R-CNN, like ResNet-101-FPN.
+1. backbones: Models to extract feature map.
+2. proposal: Methods or models to propose RoIs.
+3. pooling: Methods or models to get the fixed dimensional representation of RoIs.
+4. heads: Prediction head models to get the class id, refined bounding box, and mask.
+
+
+#### 1. backbones: 
+
+Several feature map extractor backbones support Mask R-CNN, like ResNet-101-FPN.
 
 #### 2. proposal:
 
@@ -43,18 +54,18 @@ RoI(Region of Interest) proposal model, like RPN and variants.
 
 Pooling for fixed dimensional representation, like RoIAlign and some variants.
 
-#### 4. head:
+#### 4. heads:
 Predict heads include classification head, bounding box head, mask head and their variants.
 
 #### 5. tools:
-Some utils like calculate iou, and visualize tools.
+Some utils like function to calculate iou, and visualization tools.
 
 #### 6. tests:
 Unittests and sanity checks.
 
-#### 6. lib:
+#### 6. libs:
 
-Some third-party lib this project based on.
+Some third-party libs this project based on.
 
 
 ## Reference:
