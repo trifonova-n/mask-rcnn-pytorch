@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from lib.model.rpn.rpn import _RPN
-from lib.model.rpn.anchor_target_layer import _AnchorTargetLayer
-from lib.model.rpn.proposal_layer import _ProposalLayer
-from lib.model.rpn.config import cfg
-from lib.nms.pth_nms import pth_nms as nms
+from libs.model.rpn.rpn import _RPN
+from libs.model.rpn.anchor_target_layer import _AnchorTargetLayer
+from libs.model.rpn.proposal_layer import _ProposalLayer
+from libs.model.rpn.config import cfg
+from libs.nms.pth_nms import pth_nms as nms
 
 
 class RPN(nn.Module):

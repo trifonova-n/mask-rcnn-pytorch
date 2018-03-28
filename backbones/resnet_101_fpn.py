@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from lib.model.fpn import FPN101
+from libs.model.fpn import FPN101
 
 
 class ResNet_101_FPN(nn.Module):

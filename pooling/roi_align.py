@@ -1,5 +1,5 @@
 import torch.nn as nn
-from lib.roi_align.roi_align import RoIAlign as _RoiAlign
+from libs.roi_align.roi_align import RoIAlign as _RoiAlign
 
 
 class RoiAlign(nn.Module):
