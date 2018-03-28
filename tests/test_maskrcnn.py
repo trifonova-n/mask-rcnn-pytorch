@@ -30,3 +30,6 @@ class TestUtils(unittest.TestCase):
 
     def test__calc_maskrcnn_loss(self):
         pass
+
+if __name__ == '__main__':
+    unittest.main()

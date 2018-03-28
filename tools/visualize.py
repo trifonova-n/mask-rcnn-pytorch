@@ -323,8 +323,8 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     """Draw bounding boxes and segmentation masks with differnt
     customizations.
 
-    boxes(np.array): [N, (x1, y1, y1, y2)] draw dash-line, in image coordinates.
-    refined_boxes: [N, (x1, y1, y1, y2)], draw with solid lines to show
+    boxes(np.array): [N, (x1, y1, x2, y2)] draw dash-line, in image coordinates.
+    refined_boxes: [N, (x1, y1, x2, y2)], draw with solid lines to show
         that they're the result of refining 'boxes'.
     masks(np.array): [N, height, width]
     captions: List of N titles to display on each box

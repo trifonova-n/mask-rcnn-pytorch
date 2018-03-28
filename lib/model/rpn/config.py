@@ -45,7 +45,7 @@ __C.TRAIN.TRUNCATED = False
 # Whether to have weight decay on bias as well
 __C.TRAIN.BIAS_DECAY = False
 
-# Whether to add ground truth boxes to the pooling when sampling regions
+# Whether to add ground truth boxes to the pool when sampling regions
 __C.TRAIN.USE_GT = False
 
 # Whether to use aspect-ratio grouping of training images, introduced merely for saving
@@ -142,9 +142,9 @@ __C.TRAIN.RPN_NMS_THRESH = 0.7
 # Number of top scoring boxes to keep before apply NMS to RPN proposals
 __C.TRAIN.RPN_PRE_NMS_TOP_N = 12000
 # Number of top scoring boxes to keep after applying NMS to RPN proposals
-__C.TRAIN.RPN_POST_NMS_TOP_N = 1024
+__C.TRAIN.RPN_POST_NMS_TOP_N = 2000
 # Proposal height and width both need to be greater than RPN_MIN_SIZE (at orig image scale)
-__C.TRAIN.RPN_MIN_SIZE = 4
+__C.TRAIN.RPN_MIN_SIZE = 8
 # Deprecated (outside weights)
 __C.TRAIN.RPN_BBOX_INSIDE_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 # Give the positive RPN examples weight of p * 1 / {num positives}
@@ -188,15 +188,15 @@ __C.TEST.HAS_RPN = False
 __C.TEST.PROPOSAL_METHOD = 'gt'
 
 ## NMS threshold used on RPN proposals
-__C.TEST.RPN_NMS_THRESH = 0.7
+__C.TEST.RPN_NMS_THRESH = 0.1
 ## Number of top scoring boxes to keep before apply NMS to RPN proposals
-__C.TEST.RPN_PRE_NMS_TOP_N = 8000
+__C.TEST.RPN_PRE_NMS_TOP_N = 1000
 
 ## Number of top scoring boxes to keep after applying NMS to RPN proposals
 __C.TEST.RPN_POST_NMS_TOP_N = 512
 
 # Proposal height and width both need to be greater than RPN_MIN_SIZE (at orig image scale)
-__C.TEST.RPN_MIN_SIZE = 4
+__C.TEST.RPN_MIN_SIZE = 8
 
 # Testing mode, default to be 'nms', 'top' is slower but better
 # See report for details
@@ -289,7 +289,7 @@ __C.POOLING_SIZE = 7
 __C.MAX_NUM_GT_BOXES = 20
 
 # Anchor scales for RPN
-__C.ANCHOR_SCALES = [8] # [8,16,32]
+__C.ANCHOR_SCALES = [1, 2, 4, 8] #[8,16,32]
 
 # Anchor ratios for RPN
 __C.ANCHOR_RATIOS = [0.5,1,2]

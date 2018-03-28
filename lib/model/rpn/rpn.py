@@ -1,15 +1,19 @@
 # based on https://github.com/jwyang/faster-rcnn.pytorch/blob/master/lib/model/rpn/rpn.py
 
 from __future__ import absolute_import
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from .anchor_target_layer import _AnchorTargetLayer
 from .config import cfg
 from .proposal_layer import _ProposalLayer
+from .anchor_target_layer import _AnchorTargetLayer
+
+import numpy as np
+import math
+import pdb
+import time
 
 
 class _RPN(nn.Module):
@@ -105,8 +109,7 @@ class _RPN(nn.Module):
             rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
             rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
             rpn_bbox_targets = Variable(rpn_bbox_targets)
-            # set nan to 0
-            rpn_bbox_targets[rpn_bbox_targets.detach() != rpn_bbox_targets.detach()] = 0
+
             self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets,
                                                 rpn_bbox_inside_weights,
                                                 rpn_bbox_outside_weights, sigma=3, dim=[1, 2, 3])

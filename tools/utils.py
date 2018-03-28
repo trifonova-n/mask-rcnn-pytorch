@@ -39,21 +39,24 @@ def coord_corner2center(bbox):
         center x, center y, width, height.
         
     Args:
-        bbox(Tensor): [n, 4] 
+        bbox(Tensor): [*, 4], where * means, any number of additional dimensions.
 
     Returns: 
-        bbox_trans(Tensor): [n, 4]
+        bbox_trans(Tensor): [*, 4], same shape as the input.
         
     """
-    x1, y1, x2, y2 = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
+
+    cat_dim = bbox.dim() - 1
+    x1, y1, x2, y2 = bbox.chunk(4, dim=cat_dim)
+
     x = torch.floor((x2 - x1 + 1) / 2) + x1
     y = torch.floor((y2 - y1 + 1) / 2) + y1
 
     w = x2 - x1 + 1
     h = y2 - y1 + 1
 
-    x.unsqueeze_(1), y.unsqueeze_(1), w.unsqueeze_(1), h.unsqueeze_(1)
-    bbox_trans = torch.cat([x, y, w, h], dim=1)
+    bbox_trans = torch.cat([x, y, w, h], dim=cat_dim)
+
     return bbox_trans
 
 
@@ -63,20 +66,20 @@ def coord_center2corner(bbox):
             center x, center y, width, height.
 
     Args:
-        bbox(Tensor): [n, 4] 
+        bbox(Tensor): [*, 4], where * means, any number of additional dimensions.
 
     Returns: 
-        bbox_trans(Tensor): [n, 4]
+        bbox_trans(Tensor): [*, 4], same shape as the input.
 
     """
-    x, y, w, h = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
+    cat_dim = bbox.dim() - 1
+    x, y, w, h = bbox.chunk(4, dim=cat_dim)
+
     x1 = x - torch.floor(w / 2)
     y1 = y - torch.floor(h / 2)
     x2 = x + torch.floor(w / 2) - 1
     y2 = y + torch.floor(h / 2) - 1
 
-    x1.unsqueeze_(1), y1.unsqueeze_(1), x2.unsqueeze_(1), y2.unsqueeze_(1)
-
-    bbox_trans = torch.cat([x1, y1, x2, y2], dim=1)
+    bbox_trans = torch.cat([x1, y1, x2, y2], dim=cat_dim)
 
     return bbox_trans

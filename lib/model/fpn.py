@@ -119,8 +119,8 @@ class FPN(nn.Module):
 
 
 def FPN101():
-    # return FPN(Bottleneck, [2,4,23,3])
-    return FPN(Bottleneck, [2,2,2,2])
+    return FPN(Bottleneck, [2,4,23,3])
+    # return FPN(Bottleneck, [2,2,2,2])
 
 
 # def test():

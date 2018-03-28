@@ -42,10 +42,26 @@ class TestUtils(unittest.TestCase):
         c4 = torch.zeros(3, 4)
         c4[:, :] = 0.2
 
+        a5 = torch.zeros(3, 4)
+        a5[:1, :2] = 0
+        a5[:1, 2:] = 99
+        b5 = torch.zeros(4, 4)
+        b5[:1, :2] = 0
+        b5[:1, 2:] = 99
+        c5 = torch.zeros(3, 4)
+        c5[:, :1] = 1
+
+        a5[1:, :2] = 0
+        a5[1:, 2:] = 99
+        b5[1:, :2] = 0
+        b5[1:, 2:] = 49
+        c5[:, 1:] = 0.25
+
         self.assertTrue(calc_iou(a1, b1).equal(c1))
         self.assertTrue(calc_iou(a2, b2).equal(c2))
         self.assertTrue(calc_iou(a3, b3).equal(c3))
         self.assertTrue(calc_iou(a4, b4).equal(c4))
+        self.assertTrue(calc_iou(a5, b5).equal(c5))
 
     def test_coord_corner2center(self):
         a1 = torch.zeros(3, 4)
@@ -66,8 +82,16 @@ class TestUtils(unittest.TestCase):
         b2[:, 2] = 50
         b2[:, 3] = 100
 
+        a3 = torch.zeros(4)
+        a3[:2] = 0
+        a3[2:] = 99
+        b3 = torch.zeros(4)
+        b3[:2] = 50
+        b3[2:] = 100
+
         self.assertTrue(coord_corner2center(a1).equal(b1))
         self.assertTrue(coord_corner2center(a2).equal(b2))
+        self.assertTrue(coord_corner2center(a3).equal(b3))
 
     def test_coord_center2corner(self):
         a1 = torch.zeros(3, 4)
@@ -88,8 +112,16 @@ class TestUtils(unittest.TestCase):
         b2[:, 2] = 50
         b2[:, 3] = 100
 
+        a3 = torch.zeros(4)
+        a3[:2] = 0
+        a3[2:] = 99
+        b3 = torch.zeros(4)
+        b3[:2] = 50
+        b3[2:] = 100
+
         self.assertTrue(coord_center2corner(b1).equal(a1))
         self.assertTrue(coord_center2corner(b2).equal(a2))
+        self.assertTrue(coord_center2corner(b3).equal(a3))
 
 
 if __name__ == '__main__':

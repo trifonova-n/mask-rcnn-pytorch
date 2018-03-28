@@ -1,16 +1,27 @@
 # Mask R-CNN implementation in PyTorch
 
-### (Currently, this project is under testing state, will be available soon.)
-
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 ## Usage
-(After testing finished, this will be available.)
+(This project is almost finished, user interface needs to be redesigned, install instruction, 
+usage and examples are on the road, will be fully usable in few days.)
 
 ```python
 from maskrcnn import MaskRCNN
+from torch.utils.data import Dataset
 
-mask_rcnn = MaskRCNN(num_classes=1000)
+# use pretrained weights: 
+# 1) "imagenet", just backbone feature map extractor trained on ImageNet.
+# 2) "coco", whole maskrcnn model pretrained on COCO.
+mask_rcnn = MaskRCNN(num_classes=1000, pretrained="imagenet") 
+
+class OneDataset(Dataset):
+    def __init__(self):
+        pass
+    def __getitem__(self, item):
+        pass
+    def __len__(self):
+        pass
 
 def train():
     pass
@@ -22,11 +33,11 @@ def test():
 
 #### 1. backbone: 
 
-Several backbone models support Mask R-CNN, like ResNet-101-FPN.
+Several feature map extractor backbone models support Mask R-CNN, like ResNet-101-FPN.
 
 #### 2. proposal:
 
-RoI(Region of Interest) Proposal, like RPN and variants.
+RoI(Region of Interest) proposal model, like RPN and variants.
 
 #### 3. pooling:
 
@@ -35,7 +46,13 @@ Pooling for fixed dimensional representation, like RoIAlign and some variants.
 #### 4. head:
 Predict heads include classification head, bounding box head, mask head and their variants.
 
-#### 5. lib:
+#### 5. tools:
+Some utils like calculate iou, and visualize tools.
+
+#### 6. tests:
+Unittests and sanity checks.
+
+#### 6. lib:
 
 Some third-party lib this project based on.
 

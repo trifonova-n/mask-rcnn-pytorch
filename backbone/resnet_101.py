@@ -19,6 +19,6 @@ class ResNet_101(nn.Module):
 
         x = self.resnet.layer1(x)
         x = self.resnet.layer2(x)
-        x = self.resnet.layer3(x)
-        c5 = self.resnet.layer4(x)
-        return c5
+        c4 = self.resnet.layer3(x)
+        # c5 = self.resnet.layer4(c4)
+        return c4

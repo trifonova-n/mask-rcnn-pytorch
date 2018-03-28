@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class ClsBBoxHead_fc(nn.Module):
     """Classification and bounding box regression head using fully-connected style.
     
@@ -11,8 +10,9 @@ class ClsBBoxHead_fc(nn.Module):
         super(ClsBBoxHead_fc, self).__init__()
         self.depth = depth
         self.num_classes = num_classes
+        # self.conv = nn.Conv2d(depth, 1024, kernel_size=pool_size, stride=1)
         self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
-        self.fc_0 = nn.Linear(depth, 1024)
+        self.fc_0 = nn.Linear(1024, 1024)
         self.fc_1 = nn.Linear(1024, 1024)
         self.relu = nn.ReLU(inplace=True)
         self.fc_cls = nn.Linear(1024, num_classes)
@@ -24,7 +24,7 @@ class ClsBBoxHead_fc(nn.Module):
         
         Args:
             x: (NxS)xCxHxW, roi fixed dimensional representation after pooling like RoIAlign,
-                HxW: fixed size, like 14x14.
+                HxW: fixed size, like 7x7.
 
         Returns:
             cls_prob: (NxS)x num_classes, probability of class.
@@ -33,10 +33,13 @@ class ClsBBoxHead_fc(nn.Module):
         Notes: In above, S: number of rois per image feed to predict heads
             
         """
+        # x = self.conv(x)
         x = self.avg_pool(x)
-        x = x.view(x.size(0), self.depth)
+        x = x.view(-1, self.depth)
         x = self.fc_0(x)
+        x = self.relu(x)
         x = self.fc_1(x)
+        x = self.relu(x)
 
         fc_out_cls = self.fc_cls(x)
         cls_prob = self.log_softmax(fc_out_cls)
@@ -52,6 +55,8 @@ class ClsBBoxHead_fcn(nn.Module):
 
     def __init__(self, depth, pool_size, num_classes):
         super(ClsBBoxHead_fcn, self).__init__()
+        self.num_classes = num_classes
+        self.depth = depth
         self.conv1 = nn.Conv2d(depth, 1024, kernel_size=pool_size, stride=1)
         self.bn1 = nn.BatchNorm2d(1024)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, stride=1)
@@ -82,9 +87,9 @@ class ClsBBoxHead_fcn(nn.Module):
         x = self.bn2(x)
         x = self.relu(x)
 
-        x = x.view(-1, 1024)
+        x = x.view(-1, self.depth)
         fc_out_cls = self.fc_cls(x)
         cls_prob = self.log_softmax(fc_out_cls)
         bbox_reg = self.fc_bbox(x)
-
+        bbox_reg = bbox_reg.view(-1, self.num_classes, 4)
         return cls_prob, bbox_reg
