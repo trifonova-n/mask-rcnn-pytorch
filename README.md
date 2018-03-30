@@ -3,9 +3,31 @@
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 ## Usage
-(Usage and examples will update soon.)
 
+### installation
+#### 1. install python packages
+
+`pip install cffi Pillow easydict`
+
+#### 2. insall libs
+Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
+
+`python .\libs\build_libs.py sm_62`
+
+| architectures | capabilities  |  example GPU|
+| :------------- |:-------------| :-----|
+| sm_30, sm_32 | Basic features + Keplersupport +Unified memory programming |  |
+| sm_35	      | + Dynamic parallelism support |  |
+| sm_50, sm_52, sm_53 | + Maxwell support | M40 |
+| sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
+| sm_70 | + Volta support|V100|
+
+### using MaskRCNN
+(example will be added soon.)
 ```python
+import sys
+# add this project's root directory to PATH
+sys.path.append("/home/geeshang/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
 from torch.utils.data import Dataset
 
@@ -13,7 +35,7 @@ from torch.utils.data import Dataset
 # 1) "imagenet", just backbone feature map extractor trained on ImageNet.
 # 2) "coco", whole maskrcnn model pretrained on COCO.
 
-mask_rcnn = MaskRCNN(num_classes=1000, pretrained="imagenet") 
+mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet") 
 
 class OneDataset(Dataset):
     def __init__(self):
