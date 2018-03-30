@@ -21,9 +21,9 @@ class RPN(nn.Module):
         self.rpn = _RPN(dim)
         self.use_fpn = use_fpn
         if self.use_fpn:
-            self.anchor_ratios = cfg.ANCHOR_RATIOS
-            self.anchor_scales = [8, 16, 32, 64, 128]
-            self.feat_strides = [4, 8, 16, 32, 32]
+            self.anchor_ratios = []
+            self.anchor_scales = []
+            self.feat_strides = [16, 32, 32, 32]
             self.RPN_anchor_targets = [_AnchorTargetLayer(feat_stride=self.feat_strides[idx],
                                                           scales=[scale],
                                                           ratios=self.anchor_ratios)
@@ -82,4 +82,5 @@ class RPN(nn.Module):
             rois = feature_maps[0].data.new(batch_size, nms_output_num, 5).zero_()
             rois[:, :, 0] = 0
             rois[:, :, 1:] = rois_rpn[:, :, 2:]  # remove roi_score
+
         return rois, rpn_loss_cls, rpn_loss_bbox

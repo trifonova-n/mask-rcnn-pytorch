@@ -32,12 +32,14 @@ class MaskRCNN(nn.Module):
             assert pretrained not in ['voc2007', 'coco'], ("VOC2007 and COCO pretrained weights "
                                                            "will be added soon.")
         self.config = ConfigParser()
-        self.config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini"))
+        self.config.read(os.path.abspath(os.path.join(__file__, "../",  "config.ini")))
         self.num_classes = num_classes
         self.pooling_size_clsbbox = (7, 7)
         self.pooling_size_mask = (14, 14)
-        self.use_fpn = False  # FPN backbone feature is debugging right now.
-        self.train_rpn_only = False
+        use_fpn = bool(int(self.config['TRAIN']['USE_FPN']))
+        assert not use_fpn, "FPN backbone is under debugging right now."
+        self.use_fpn = use_fpn
+        self.train_rpn_only = bool(int(self.config['TRAIN']['TRAIN_RPN_ONLY']))
 
         if self.use_fpn:
             self.backbone_fpn = ResNet_101_FPN(pretrained=pretrained)
@@ -46,7 +48,7 @@ class MaskRCNN(nn.Module):
             self.backbone = ResNet_101(pretrained=pretrained)
             self.depth = 1024
 
-        self.rpn = RPN(dim=self.depth, use_fpn=self.use_fpn)
+        self.rpn = RPN(self.depth, self.use_fpn)
 
         if not self.train_rpn_only:
             # RoiAlign for cls and bbox head, pooling size 7x7
@@ -79,11 +81,15 @@ class MaskRCNN(nn.Module):
                     'proposal': (x1, y1, x2, y2), course bbox from RPN proposal.
                     'cls_pred': predicted class id.
                     'bbox_pred': (x1, y1, x2, y2), refined bbox from prediction head.
-                    'mask_pred': [1, 28, 28], predicted mask.
+                    'mask_pred': [H, W], predicted mask.
                     
                 e.g. result[0][0]['mask_pred'] stands for the first object's mask prediction of
                     the first image of mini-batch.
         """
+        if self.training:
+            assert gt_classes is not None
+            assert gt_bboxes is not None
+            assert gt_masks is not None
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
@@ -106,18 +112,12 @@ class MaskRCNN(nn.Module):
         rois = rois.view(-1, 5)  # [N, M, 5] -> [(NxM), 5]
 
         if self.train_rpn_only:  # only train RPN.
-            rpn_loss = None
-            if self.training:
-                rpn_loss = rpn_loss_cls + rpn_loss_bbox
-            else:
-                result = self._process_result(self.batch_size, rois)
+            result = self._process_result(self.batch_size, rois)
+            rpn_loss = rpn_loss_cls + rpn_loss_bbox
 
             return result, rpn_loss
         else:  # train RPN + Predict heads together.
-            if self.training:
-                assert gt_classes is not None
-                assert gt_bboxes is not None
-                assert gt_masks is not None
+            if gt_classes is not None and gt_bboxes is not None and gt_masks is not None:
                 rois = rois.view(self.batch_size, -1, 5)  # [(NxM), 5] -> [N, M, 5]
                 gen_targets = self._generate_targets(rois, gt_classes, gt_bboxes, gt_masks)
                 rois_sampled, cls_targets, bbox_targets, mask_targets = gen_targets
@@ -127,6 +127,8 @@ class MaskRCNN(nn.Module):
                 head_loss = MaskRCNN._calc_head_loss(cls_prob, bbox_reg, mask_prob,
                                                      cls_targets, bbox_targets, mask_targets)
                 maskrcnn_loss = rpn_loss_cls + rpn_loss_bbox + head_loss
+                result = self._process_result(self.batch_size, rois_sampled, cls_prob, bbox_reg,
+                                              mask_prob)
             else:
                 cls_prob, bbox_reg, mask_prob = self._run_predict_head(refine_features, rois)
                 result = self._process_result(self.batch_size, rois, cls_prob, bbox_reg, mask_prob)
@@ -186,8 +188,10 @@ class MaskRCNN(nn.Module):
             c: number of rois to train.
 
         """
-        rois_sample_size = int(self.config['Train']['rois_sample_size'])
-        rois_positive_portion = float(self.config['Train']['rois_positive_portion'])
+        rois_sample_size = int(self.config['TRAIN']['ROIS_SAMPLE_SIZE'])
+        rois_pos_ratio = float(self.config['TRAIN']['ROIS_POS_RATIO'])
+        rois_pos_thresh = float(self.config['TRAIN']['ROIS_POS_THRESH'])
+        rois_neg_thresh = float(self.config['TRAIN']['ROIS_NEG_THRESH'])
 
         batch_size = proposals.size(0)
         # Todo: add support to use batch_size >= 1
@@ -201,8 +205,8 @@ class MaskRCNN(nn.Module):
 
         iou = calc_iou(proposals[:, 1:], gt_bboxes[:, :])
         max_iou, max_iou_idx_gt = torch.max(iou, dim=1)
-        pos_index_prop = torch.nonzero(max_iou >= 0.6).view(-1)
-        neg_index_prop = torch.nonzero(max_iou < 0.4).view(-1)
+        pos_index_prop = torch.nonzero(max_iou >= rois_pos_thresh).view(-1)
+        neg_index_prop = torch.nonzero(max_iou < rois_neg_thresh).view(-1)
 
         # if pos_index_prop or neg_index_prop is empty, return an background.
         if pos_index_prop.numel() == 0 or neg_index_prop.numel() == 0:
@@ -218,13 +222,13 @@ class MaskRCNN(nn.Module):
         pos_index_gt = max_iou_idx_gt[pos_index_prop]
         assert pos_index_prop.size() == pos_index_gt.size()
 
-        sample_size_pos = int(rois_positive_portion * rois_sample_size)
+        sample_size_pos = int(rois_pos_ratio * rois_sample_size)
 
         pos_num = pos_index_prop.size(0)
         neg_num = neg_index_prop.size(0)
         sample_size_pos = min(sample_size_pos, pos_num)
         # keep the ratio of positive and negative rois, if there are not enough positives.
-        sample_size_neg = int((pos_num / rois_positive_portion) * (1 - rois_positive_portion) + 1)
+        sample_size_neg = int((pos_num / rois_pos_ratio) * (1 - rois_pos_ratio) + 1)
         sample_size_neg = min(sample_size_neg, neg_num)
 
         sample_index_pos = random.sample(range(pos_num), sample_size_pos)
@@ -316,10 +320,10 @@ class MaskRCNN(nn.Module):
                 dict contains stuff below.
                 
                 dict_key:
-                    'proposal': (x1, y1, x2, y2), course bbox from RPN proposal.
-                    'cls_pred': predicted class id.
-                    'bbox_pred': (x1, y1, x2, y2), refined bbox from prediction head.
-                    'mask_pred': [1, 28, 28], predicted mask.
+                    'proposal'(Tensor): (x1, y1, x2, y2), course bbox from RPN proposal.
+                    'cls_pred'(int): predicted class id.
+                    'bbox_pred'(Tensor): (x1, y1, x2, y2), refined bbox from prediction head.
+                    'mask_pred'(Tensor): [H, W], predicted mask.
                     
                 e.g. result[0][0]['mask_pred'] stands for the first object's mask prediction of
                     the first image of mini-batch.
@@ -362,7 +366,7 @@ class MaskRCNN(nn.Module):
                     pred_dict = {'proposal': None, 'cls_pred': None, 'bbox_pred': None,
                                  'mask_pred': None}
 
-                    pred_dict['proposal'] = proposals[i, 1:]
+                    pred_dict['proposal'] = proposals[i, 1:].cpu()
                     cls_id = cls_pred[i]
                     pred_dict['cls_pred'] = int(cls_id)
 
@@ -383,8 +387,8 @@ class MaskRCNN(nn.Module):
                     if mask_height == 0 or mask_width == 0 or py1 > py2 or px1 > px2:
                         continue
 
-                    pred_dict['bbox_pred'] = (px1, py1, px2, py2)
-                    mask_threshold = float(self.config['Test']['mask_threshold'])
+                    pred_dict['bbox_pred'] = torch.LongTensor([px1, py1, px2, py2])
+                    mask_threshold = float(self.config['TEST']['MASK_THRESH'])
                     mask_prob_keep = mask_prob[i, :, :, :]
                     mask = (mask_prob_keep[cls_id, :, :] >= mask_threshold).float()
                     mask = Variable(mask.unsqueeze(0), requires_grad=False)

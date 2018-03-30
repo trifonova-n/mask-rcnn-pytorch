@@ -8,6 +8,11 @@ import numpy as np
 # `pip install easydict` if you don't have it
 from easydict import EasyDict as edict
 
+from configparser import ConfigParser
+config = ConfigParser()
+config_path = osp.abspath(osp.join(__file__, "../../../../", "config.ini"))
+config.read(config_path)
+
 __C = edict()
 # Consumers can get config by:
 #   from fast_rcnn_config import cfg
@@ -138,13 +143,13 @@ __C.TRAIN.RPN_FG_FRACTION = 0.5
 # Total number of examples
 __C.TRAIN.RPN_BATCHSIZE = 256
 # NMS threshold used on RPN proposals
-__C.TRAIN.RPN_NMS_THRESH = 0.7
+__C.TRAIN.RPN_NMS_THRESH = float(config['RPN']['TRAIN_RPN_NMS_THRESH'])
 # Number of top scoring boxes to keep before apply NMS to RPN proposals
-__C.TRAIN.RPN_PRE_NMS_TOP_N = 12000
+__C.TRAIN.RPN_PRE_NMS_TOP_N = int(config['RPN']['TRAIN_RPN_PRE_NMS_TOP_N'])
 # Number of top scoring boxes to keep after applying NMS to RPN proposals
-__C.TRAIN.RPN_POST_NMS_TOP_N = 2000
+__C.TRAIN.RPN_POST_NMS_TOP_N = int(config['RPN']['TRAIN_RPN_POST_NMS_TOP_N'])
 # Proposal height and width both need to be greater than RPN_MIN_SIZE (at orig image scale)
-__C.TRAIN.RPN_MIN_SIZE = 8
+__C.TRAIN.RPN_MIN_SIZE = int(config['RPN']['TRAIN_RPN_MIN_SIZE'])
 # Deprecated (outside weights)
 __C.TRAIN.RPN_BBOX_INSIDE_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 # Give the positive RPN examples weight of p * 1 / {num positives}
@@ -188,15 +193,16 @@ __C.TEST.HAS_RPN = False
 __C.TEST.PROPOSAL_METHOD = 'gt'
 
 ## NMS threshold used on RPN proposals
-__C.TEST.RPN_NMS_THRESH = 0.1
+__C.TEST.RPN_NMS_THRESH = float(config['RPN']['TEST_RPN_NMS_THRESH'])
+
 ## Number of top scoring boxes to keep before apply NMS to RPN proposals
-__C.TEST.RPN_PRE_NMS_TOP_N = 1000
+__C.TEST.RPN_PRE_NMS_TOP_N = int(config['RPN']['TEST_RPN_PRE_NMS_TOP_N'])
 
 ## Number of top scoring boxes to keep after applying NMS to RPN proposals
-__C.TEST.RPN_POST_NMS_TOP_N = 512
+__C.TEST.RPN_POST_NMS_TOP_N = int(config['RPN']['TEST_RPN_POST_NMS_TOP_N'])
 
 # Proposal height and width both need to be greater than RPN_MIN_SIZE (at orig image scale)
-__C.TEST.RPN_MIN_SIZE = 8
+__C.TEST.RPN_MIN_SIZE = int(config['RPN']['TEST_RPN_MIN_SIZE'])
 
 # Testing mode, default to be 'nms', 'top' is slower but better
 # See report for details
@@ -289,13 +295,21 @@ __C.POOLING_SIZE = 7
 __C.MAX_NUM_GT_BOXES = 20
 
 # Anchor scales for RPN
-__C.ANCHOR_SCALES = [1, 2, 4, 8] #[8,16,32]
+anchor_scales = config['RPN']['ANCHOR_SCALES']
+anchor_scales = [int(i) for i in anchor_scales.split()]
+
+__C.ANCHOR_SCALES = anchor_scales  #[8,16,32]
 
 # Anchor ratios for RPN
-__C.ANCHOR_RATIOS = [0.5,1,2]
+anchor_ratios = config['RPN']['ANCHOR_RATIOS']
+anchor_ratios = [float(i) for i in anchor_ratios.split()]
+
+__C.ANCHOR_RATIOS = anchor_ratios
 
 # Feature stride for RPN
-__C.FEAT_STRIDE = [16, ]
+feat_stride = int(config['RPN']['FEAT_STRIDE'])
+
+__C.FEAT_STRIDE = [feat_stride, ]
 
 __C.CUDA = False
 

@@ -10,7 +10,6 @@ class ClsBBoxHead_fc(nn.Module):
         super(ClsBBoxHead_fc, self).__init__()
         self.depth = depth
         self.num_classes = num_classes
-        # self.conv = nn.Conv2d(depth, 1024, kernel_size=pool_size, stride=1)
         self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
         self.fc_0 = nn.Linear(1024, 1024)
         self.fc_1 = nn.Linear(1024, 1024)
@@ -33,7 +32,6 @@ class ClsBBoxHead_fc(nn.Module):
         Notes: In above, S: number of rois per image feed to predict heads
             
         """
-        # x = self.conv(x)
         x = self.avg_pool(x)
         x = x.view(-1, self.depth)
         x = self.fc_0(x)
@@ -92,4 +90,5 @@ class ClsBBoxHead_fcn(nn.Module):
         cls_prob = self.log_softmax(fc_out_cls)
         bbox_reg = self.fc_bbox(x)
         bbox_reg = bbox_reg.view(-1, self.num_classes, 4)
+
         return cls_prob, bbox_reg
