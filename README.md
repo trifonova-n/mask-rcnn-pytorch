@@ -3,8 +3,11 @@
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 There is still some work to be done.
-- [ ] debugging FCN backbone 
+- [ ] ResNet101 backbone is good to go, but FPN backbone still need debugging.
+- [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
+whole model 
 - [ ] refined documentation and examples
+ 
 
 ## Usage
 
