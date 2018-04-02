@@ -1,15 +1,19 @@
-# Mask R-CNN implementation in PyTorch
+# Mask R-CNN implementation in PyTorch 
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
+There is still some work to be done.
+- [ ] debugging FCN backbone 
+- [ ] refined documentation and examples
+
 ## Usage
 
-### installation
-#### 1. install python packages
+### Installation
+#### 1. Install python package dependencies
 
 `pip install cffi Pillow easydict`
 
-#### 2. insall libs
+#### 2. Insall libs
 Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 
 `python .\libs\build_libs.py sm_62`
@@ -22,8 +26,8 @@ Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 | sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
 | sm_70 | + Volta support|V100|
 
-### using MaskRCNN
-(example will be added soon.)
+### Using MaskRCNN
+
 ```python
 import sys
 # add this project's root directory to PATH
