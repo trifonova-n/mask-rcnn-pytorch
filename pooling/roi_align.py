@@ -1,4 +1,5 @@
 import torch.nn as nn
+from torch.autograd import Variable
 from libs.roi_align.roi_align import RoIAlign as _RoiAlign
 
 
@@ -14,23 +15,25 @@ class RoiAlign(nn.Module):
         """
         super(RoiAlign, self).__init__()
         assert isinstance(grid_size, tuple)
-        self.feature_map_stride = 16
         self.roi_align = _RoiAlign(crop_width=grid_size[0], crop_height=grid_size[1])
 
-    def forward(self, feature_map, boxes, box_idx):
+    def forward(self, feature_map, rois, img_height):
         """
         
         Args:
-            feature_map: NxCxHxW
-            boxes: Mx4 float box with (x1, y1, x2, y2), in origin image coord.
-            box_idx: M
-
+            feature_map: [N, C, H, W]
+            rois(Tensor): [(NxM), (n, x1, y1, x2, y2)], n is mini-batch index, coord is in origin 
+                image scale.
+            img_height(int): origin image height
         Returns:
             roi_pool: MxCxoHxoW  M: number of roi in all mini-batch.
             
         """
+        bbox_idx = rois[:, 0]
+        bboxes = rois[:, 1:]
         # transform origin image coord to feature map coord.
-        boxes /= self.feature_map_stride
-        roi_pool = self.roi_align(feature_map, boxes, box_idx)
+        stride = img_height / feature_map.size(2)  # stride of feature map, e.g. C4:16
+        bboxes /= stride
+        roi_pool = self.roi_align(feature_map, Variable(bboxes), Variable(bbox_idx.int()))
 
         return roi_pool

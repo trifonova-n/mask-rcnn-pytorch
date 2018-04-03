@@ -294,9 +294,18 @@ __C.POOLING_SIZE = 7
 # Maximal number of gt rois in an image during Training
 __C.MAX_NUM_GT_BOXES = 20
 
+# Feature stride for RPN
+feat_stride = int(config['RPN']['FEAT_STRIDE'])
+
+__C.FEAT_STRIDE = [feat_stride, ]
+
 # Anchor scales for RPN
-anchor_scales = config['RPN']['ANCHOR_SCALES']
-anchor_scales = [int(i) for i in anchor_scales.split()]
+anchor_areas = [int(i) for i in config['RPN']['ANCHOR_AREAS'].split()]
+
+anchor_scales = []
+for i in range(len(anchor_areas)):
+    assert anchor_areas[i] % feat_stride == 0, "anchor area must be multiple of feat stride."
+    anchor_scales.append(anchor_areas[i] / feat_stride)
 
 __C.ANCHOR_SCALES = anchor_scales  #[8,16,32]
 
@@ -305,11 +314,6 @@ anchor_ratios = config['RPN']['ANCHOR_RATIOS']
 anchor_ratios = [float(i) for i in anchor_ratios.split()]
 
 __C.ANCHOR_RATIOS = anchor_ratios
-
-# Feature stride for RPN
-feat_stride = int(config['RPN']['FEAT_STRIDE'])
-
-__C.FEAT_STRIDE = [feat_stride, ]
 
 __C.CUDA = False
 

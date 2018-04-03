@@ -6,7 +6,7 @@ from .crop_and_resize import CropAndResizeFunction, CropAndResize
 
 class RoIAlign(nn.Module):
 
-    def __init__(self, crop_height, crop_width, extrapolation_value=0, transform_fpcoor=False):
+    def __init__(self, crop_height, crop_width, extrapolation_value=0, transform_fpcoor=True):
         super(RoIAlign, self).__init__()
 
         self.crop_height = crop_height

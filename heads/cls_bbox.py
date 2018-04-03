@@ -11,7 +11,7 @@ class ClsBBoxHead_fc(nn.Module):
         self.depth = depth
         self.num_classes = num_classes
         self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
-        self.fc_0 = nn.Linear(1024, 1024)
+        self.fc_0 = nn.Linear(self.depth, 1024)
         self.fc_1 = nn.Linear(1024, 1024)
         self.relu = nn.ReLU(inplace=True)
         self.fc_cls = nn.Linear(1024, num_classes)

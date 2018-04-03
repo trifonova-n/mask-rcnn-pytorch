@@ -32,12 +32,11 @@ class MaskRCNN(nn.Module):
             assert pretrained not in ['voc2007', 'coco'], ("VOC2007 and COCO pretrained weights "
                                                            "will be added soon.")
         self.config = ConfigParser()
-        self.config.read(os.path.abspath(os.path.join(__file__, "../",  "config.ini")))
+        self.config.read(os.path.abspath(os.path.join(__file__, "../", "config.ini")))
         self.num_classes = num_classes
         self.pooling_size_clsbbox = (7, 7)
         self.pooling_size_mask = (14, 14)
         use_fpn = bool(int(self.config['TRAIN']['USE_FPN']))
-        assert not use_fpn, "FPN backbone is under debugging right now."
         self.use_fpn = use_fpn
         self.train_rpn_only = bool(int(self.config['TRAIN']['TRAIN_RPN_ONLY']))
 
@@ -96,33 +95,31 @@ class MaskRCNN(nn.Module):
         img_shape = image.data.new(self.batch_size, 2).zero_()
         img_shape[:, 0] = self.img_height
         img_shape[:, 1] = self.img_width
-        result, maskrcnn_loss = None, None
+        result, maskrcnn_loss = None, 0
         if self.use_fpn:
             p2, p3, p4, p5, p6 = self.backbone_fpn(image)
             # feature maps to feed RPN to generate proposals.
-            proposal_features = [p2, p3, p4, p5, p6]
+            rpn_features = [p2, p3, p4, p5, p6]
             # feature maps to feed prediction heads to refine bbox and predict class and mask.
-            refine_features = [p2, p3, p4, p5]
+            head_features = [p2, p3, p4, p5]
         else:
             feature_map = self.backbone(image)
-            proposal_features = [feature_map]
-            refine_features = [feature_map]
+            rpn_features = [feature_map]
+            head_features = [feature_map]
 
-        rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(proposal_features, gt_bboxes, img_shape)
-        rois = rois.view(-1, 5)  # [N, M, 5] -> [(NxM), 5]
+        rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features, gt_bboxes, img_shape)
 
         if self.train_rpn_only:  # only train RPN.
             result = self._process_result(self.batch_size, rois)
             rpn_loss = rpn_loss_cls + rpn_loss_bbox
-
             return result, rpn_loss
         else:  # train RPN + Predict heads together.
-            if gt_classes is not None and gt_bboxes is not None and gt_masks is not None:
-                rois = rois.view(self.batch_size, -1, 5)  # [(NxM), 5] -> [N, M, 5]
+            if self.training:
+                assert gt_classes is not None and gt_bboxes is not None and gt_masks is not None
                 gen_targets = self._generate_targets(rois, gt_classes, gt_bboxes, gt_masks)
                 rois_sampled, cls_targets, bbox_targets, mask_targets = gen_targets
 
-                cls_prob, bbox_reg, mask_prob = self._run_predict_head(refine_features,
+                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features,
                                                                        rois_sampled)
                 head_loss = MaskRCNN._calc_head_loss(cls_prob, bbox_reg, mask_prob,
                                                      cls_targets, bbox_targets, mask_targets)
@@ -130,35 +127,30 @@ class MaskRCNN(nn.Module):
                 result = self._process_result(self.batch_size, rois_sampled, cls_prob, bbox_reg,
                                               mask_prob)
             else:
-                cls_prob, bbox_reg, mask_prob = self._run_predict_head(refine_features, rois)
+                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features, rois)
                 result = self._process_result(self.batch_size, rois, cls_prob, bbox_reg, mask_prob)
 
             return result, maskrcnn_loss
 
-    def _run_predict_head(self, refine_features, rois):
+    def _run_predict_head(self, features, rois):
         """Run classification, bounding box regression and mask prediction heads.
         
         Args:
-            refine_features(list of Variable): 
-            rois(Tensor):
+            features(list of Variable): 
+            rois(Tensor): [N, M (n, x1, y1, x2, y2)]
 
         Returns:
-            cls_prob:
-            bbox_reg:
-            mask_prob:
+            cls_prob(Tensor): [(NxM)]
+            bbox_reg(Tensor): [(NxM), (dx, dy, dw, dh)]
+            mask_prob(Tensor): [(NxM), 28, 28]
         """
+        rois = rois.contiguous().view(-1, 5)  # [N, M, 5] -> [(NxM), 5]
         if self.use_fpn:
-            rois_pooling_clsbbox = self._roi_align_fpn(refine_features, rois)
-            rois_pooling_mask = self._roi_align_fpn(refine_features, rois)
+            rois_pooling_clsbbox = self._roi_align_fpn(features, rois, mode='clsbbox')
+            rois_pooling_mask = self._roi_align_fpn(features, rois, mode='mask')
         else:
-            bbox_idx = rois[:, 0]
-            bboxes = rois[:, 1:]
-            rois_pooling_clsbbox = self.roi_align_clsbbox(refine_features[0],
-                                                          Variable(bboxes),
-                                                          Variable(bbox_idx.int()))
-            rois_pooling_mask = self.roi_align_mask(refine_features[0],
-                                                    Variable(bboxes),
-                                                    Variable(bbox_idx.int()))
+            rois_pooling_clsbbox = self.roi_align_clsbbox(features[0], rois, self.img_height)
+            rois_pooling_mask = self.roi_align_mask(features[0], rois, self.img_height)
         # run cls, bbox, mask prediction head.
         cls_prob, bbox_reg = self.clsbbox_head(rois_pooling_clsbbox)
         mask_prob = self.mask_head(rois_pooling_mask)
@@ -177,7 +169,7 @@ class MaskRCNN(nn.Module):
                 and width.  
 
         Returns: 
-            sampled_rois(Tensor): [(Nxc), (idx, x1, y1, x2, y2)], proposals after sampled to feed 
+            sampled_rois(Tensor): [N, c, (idx, x1, y1, x2, y2)], proposals after sampled to feed 
                 RoIAlign. 
             cls_targets(Variable): [(Nxc)], train targets for classification.
             bbox_targets(Variable): [(Nxc), (dx, dy, dw, dh)], train targets for bounding box 
@@ -215,6 +207,7 @@ class MaskRCNN(nn.Module):
                                                       proposals[:1, 1:])
             mask_targets = gt_masks.new(1, mask_size[0], mask_size[1]).zero_()
             sampled_rois = proposals[:1, :]
+            sampled_rois = sampled_rois.view(batch_size, -1, 5)
 
             return sampled_rois, Variable(cls_targets), Variable(bbox_targets), Variable(
                 mask_targets)
@@ -253,56 +246,55 @@ class MaskRCNN(nn.Module):
         # mask targets define on positive proposals.
         mask_targets = MaskRCNN._get_mask_targets(bboxes[pos_index_sampled_prop, :],
                                                   gt_masks[pos_index_sampled_gt, :, :], mask_size)
+        sampled_rois = sampled_rois.view(batch_size, -1, 5)
 
         return sampled_rois, Variable(cls_targets), Variable(bbox_targets), Variable(mask_targets)
 
-    def _roi_align_fpn(self, fpn_features, rois):
+    def _roi_align_fpn(self, fpn_features, rois, mode):
         """When use fpn backbone, set RoiAlign use different levels of fpn feature pyramid
             according to RoI size.
          
         Args:
-            fpn_features(list of Variable): [p2, p3, p4, p5], 
-            rois: NxMx5(n, x1, y1, x2, y2), RPN proposals.
-
+            fpn_features(list of Variable): [p2, p3, p4, p5]], 
+            rois(Tensor): [(NxM), (n, x1, y1, x2, y2)], RPN proposals.
+            mode(str): 'clsbbox': roi_align for cls and bbox head, 'mask': roi_align for mask head. 
         Returns:
-            rois_pooling: (NxM)xCxHxW, rois after use RoIAlign.
+            rois_pooling: [(NxM), C, pool_size, pool_size], rois after use RoIAlign.
             
         """
-        # Flatten NxMx4 to (NxM)x4
-        rois_reshape = rois.view(-1, rois.size(-1))
-        bboxes = rois_reshape[:, 1:]
-        bbox_indexes = rois_reshape[:, 0]
-        rois_pooling_batches = [[] for _ in range(rois.size(0))]
-        bbox_levels = [[] for _ in range(len(fpn_features))]
-        bbox_idx_levels = [[] for _ in range(len(fpn_features))]
+        assert mode in ['clsbbox', 'mask']
+
+        rois_levels = [[] for _ in range(len(fpn_features))]
+        rois_pool_result = []
         # iterate bbox to find which level of pyramid features to feed.
-        for idx, bbox in enumerate(bboxes):
+        for roi in rois:
+            bbox = roi[1:]
             # in feature pyramid network paper, alpha is 224 and image short side 800 pixels,
             # for using of small image input, like maybe short side 256, here alpha is
             # parameterized by image short side size.
             alpha = 224 * min(self.img_height, self.img_width) / 800
-            bbox_width = torch.abs(rois.new([bbox[0] - bbox[2]]).float())
-            bbox_height = torch.abs(rois.new([bbox[1] - bbox[3]]).float())
-            log2 = torch.log(torch.sqrt(bbox_height * bbox_width)) / torch.log(
-                rois.new([2]).float()) / alpha
-            level = torch.floor(4 + log2) - 2  # minus 2 to make level 0 indexed
+            bbox_width = torch.abs(rois.new([bbox[2] - bbox[0]]).float())
+            bbox_height = torch.abs(rois.new([bbox[3] - bbox[1]]).float())
+            log2 = torch.log(torch.sqrt(bbox_height * bbox_width) / alpha) / torch.log(
+                rois.new([2]).float())
+            level = torch.floor(4 + log2) - 2  # 4 stands for C4, minus 2 to make level 0 indexed
             # rois small or big enough may get level below 0 or above 3.
             level = int(torch.clamp(level, 0, 3))
-            bbox = bbox.type_as(bboxes).unsqueeze(0)
-            bbox_idx = rois.new([bbox_indexes[idx]]).int()
-            bbox_levels[level].append(bbox)
-            bbox_idx_levels[level].append(bbox_idx)
-        for level in range(len(fpn_features)):
-            if len(bbox_levels[level]) != 0:
-                bbox = Variable(torch.cat(bbox_levels[level]))
-                bbox_idx = Variable(torch.cat(bbox_idx_levels[level]))
-                roi_pool_per_level = self.roi_align_mask(fpn_features[level], bbox, bbox_idx)
-                for idx, batch_idx in enumerate(bbox_idx_levels[level]):
-                    rois_pooling_batches[int(batch_idx)].append(roi_pool_per_level[idx])
+            roi.unsqueeze_(0)
+            rois_levels[level].append(roi)
 
-        rois_pooling = torch.cat([torch.cat(i) for i in rois_pooling_batches])
-        rois_pooling = rois_pooling.view(-1, fpn_features[0].size(1), rois_pooling.size(1),
-                                         rois_pooling.size(2))
+        for level in range(len(fpn_features)):
+            if len(rois_levels[level]) != 0:
+                if mode == 'clsbbox':
+                    roi_pool_per_level = self.roi_align_clsbbox(fpn_features[level],
+                                                                torch.cat(rois_levels[level]),
+                                                                self.img_height)
+                else:
+                    roi_pool_per_level = self.roi_align_mask(fpn_features[level],
+                                                             torch.cat(rois_levels[level]),
+                                                             self.img_height)
+                rois_pool_result.append(roi_pool_per_level)
+        rois_pooling = torch.cat(rois_pool_result)
 
         return rois_pooling
 
@@ -310,7 +302,7 @@ class MaskRCNN(nn.Module):
         """Process heads output to get the final result.
         Args:
             batch_size(int): mini-batch size.
-            proposals(Tensor): [(NxM), (idx, x1, y1, x2, y2)]
+            proposals(Tensor): [N, M, (idx, x1, y1, x2, y2)]
             cls_prob(Variable): [(NxM),  num_classes]
             bbox_reg(Variable): [(NxM), num_classes, (x1, y1, x2, y2)]
             mask_prob(Variable): [(NxM), num_classes, 28, 28]
@@ -329,9 +321,7 @@ class MaskRCNN(nn.Module):
                     the first image of mini-batch.
         """
         # Todo: support batch_size > 1.
-        assert batch_size == 1, "batch_size > 1 will support later"
-
-        proposals = proposals.view(batch_size, -1, 5)
+        assert batch_size == 1, "batch_size > 1 will add support later"
         proposals = proposals.squeeze(0)
         num_rois = proposals.size(0)
 
@@ -340,7 +330,7 @@ class MaskRCNN(nn.Module):
         if self.train_rpn_only:
             obj_detected = []
             for i in range(num_rois):
-                pred_dict = {'proposal': proposals[i, 1:]}
+                pred_dict = {'proposal': proposals[i, 1:].cpu()}
                 obj_detected.append(pred_dict)
             result.append(obj_detected)
 
@@ -361,6 +351,7 @@ class MaskRCNN(nn.Module):
             # remove background and predicted ids.
             keep_index = (cls_pred > 0)
             obj_detected = []
+
             for i in range(num_rois):
                 if int(keep_index[i]):
                     pred_dict = {'proposal': None, 'cls_pred': None, 'bbox_pred': None,
