@@ -23,6 +23,7 @@ class RPN(nn.Module):
         self.config.read(os.path.abspath(os.path.join(__file__, "../../", 'config.ini')))
         self.rpn = _RPN(dim)
         self.use_fpn = use_fpn
+
         if self.use_fpn:
             feature_strides = (4, 8, 16, 32, 64)
             anchor_areas = [int(i) for i in self.config['RPN']['ANCHOR_AREAS_FPN'].split()]
@@ -92,12 +93,15 @@ class RPN(nn.Module):
 
                 rois_pre_nms.append(roi_single)
 
-            rois_pre_nms = torch.cat(rois_pre_nms, 1)  # [N, M, 5], torch.cat() at dim 'M'.
+            rois_pre_nms = torch.cat(rois_pre_nms, 1)  # [N, M, (n, score, x1, y1, x2, y2)].
             # Apply nms to result of all pyramid rois.
-            keep_idx = nms(rois_pre_nms[0, :, 1:], nms_thresh)
+            score = rois_pre_nms[0, :, 1]
+            score.unsqueeze_(-1)
+            bbox = rois_pre_nms[0, :, 2:]
+            keep_idx = nms(torch.cat([bbox, score], 1), nms_thresh)
             keep_idx = keep_idx[:post_nms_top_n]
             rois_per_img = torch.cat([rois_pre_nms[:, idx, :] for idx in keep_idx])
-            rois = rois_per_img[:, :5]  # remove roi_score
+            rois = rois_per_img[:, [0, 2, 3, 4, 5]]  # remove roi_score
             rois = rois.unsqueeze(0)
             rpn_loss_cls /= len(feature_maps)
             rpn_loss_bbox /= len(feature_maps)

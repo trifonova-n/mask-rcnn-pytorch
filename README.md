@@ -3,7 +3,6 @@
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 There is still some work to be done.
-- [ ] ResNet101 backbone is good to go, but FPN backbone still need debugging.
 - [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
 whole model 
 - [ ] refined documentation and examples
@@ -12,11 +11,15 @@ whole model
 ## Usage
 
 ### Installation
-#### 1. Install python package dependencies
 
-`pip install cffi Pillow easydict`
+#### 1. Download this repo
+ `git clone git@github.com:GeeshangXu/mask-rcnn-pytorch.git`
+ 
+#### 2. Install python package dependencies
 
-#### 2. Insall libs
+`pip install cffi pillow easydict`
+
+#### 3. Install libs
 Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 
 `python .\libs\build_libs.py sm_62`
@@ -30,27 +33,20 @@ Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 | sm_70 | + Volta support|V100|
 
 ### Using MaskRCNN
-
 ```python
+
+# Take a look at config.ini, config some hyper-parameters.
+
 import sys
 # add this project's root directory to PATH
 sys.path.append("/home/geeshang/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
-from torch.utils.data import Dataset
 
 # use pretrained weights: 
 # 1) "imagenet", just backbone feature map extractor trained on ImageNet.
 # 2) "coco", whole maskrcnn model pretrained on COCO.
 
 mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet") 
-
-class OneDataset(Dataset):
-    def __init__(self):
-        pass
-    def __getitem__(self, item):
-        pass
-    def __len__(self):
-        pass
 
 def train():
     pass
