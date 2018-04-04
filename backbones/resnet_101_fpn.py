@@ -7,13 +7,9 @@ class ResNet_101_FPN(nn.Module):
     """ResNet 101 FPN backbone feature map extractor.
     
     """
+
     def __init__(self, pretrained=None):
         super(ResNet_101_FPN, self).__init__()
-        if pretrained is not None:
-            self.resnet = resnet101(pretrained=True)
-        else:
-            self.resnet = resnet101()
-
         self.lateral_conv1 = nn.Conv2d(2048, 256, kernel_size=1)
         self.lateral_conv2 = nn.Conv2d(1024, 256, kernel_size=1)
         self.lateral_conv3 = nn.Conv2d(512, 256, kernel_size=1)
@@ -22,6 +18,17 @@ class ResNet_101_FPN(nn.Module):
         self.anti_aliasing_conv1 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
         self.anti_aliasing_conv2 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
         self.anti_aliasing_conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
+        self._init_parameters()
+
+        if pretrained is not None:
+            self.resnet = resnet101(pretrained=True)
+        else:
+            self.resnet = resnet101()
+
+    def _init_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal(m.weight)
 
     def forward(self, x):
         """

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class ClsBBoxHead_fc(nn.Module):
     """Classification and bounding box regression head using fully-connected style.
     
@@ -46,13 +47,13 @@ class ClsBBoxHead_fc(nn.Module):
         return cls_prob, bbox_reg
 
 
-class ClsBBoxHead_fcn(nn.Module):
-    """Classification and bounding box regression head using FCN style.
+class ClsBBoxHead_conv(nn.Module):
+    """Classification and bounding box regression head using Conv style.
 
     """
 
     def __init__(self, depth, pool_size, num_classes):
-        super(ClsBBoxHead_fcn, self).__init__()
+        super(ClsBBoxHead_conv, self).__init__()
         self.num_classes = num_classes
         self.depth = depth
         self.conv1 = nn.Conv2d(depth, 1024, kernel_size=pool_size, stride=1)
@@ -63,6 +64,12 @@ class ClsBBoxHead_fcn(nn.Module):
         self.fc_cls = nn.Linear(1024, num_classes)
         self.fc_bbox = nn.Linear(1024, num_classes * 4)
         self.log_softmax = nn.LogSoftmax(dim=1)
+        self._init_parameters()
+
+    def _init_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal(m.weight)
 
     def forward(self, x):
         """

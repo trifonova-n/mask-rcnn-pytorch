@@ -21,6 +21,12 @@ class MaskHead(nn.Module):
         self.conv5 = nn.Conv2d(256, num_classes, kernel_size=1)
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU(inplace=True)
+        self._init_parameters()
+
+    def _init_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal(m.weight)
 
     def forward(self, x):
         """
