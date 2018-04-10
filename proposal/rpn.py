@@ -61,9 +61,10 @@ class RPN(nn.Module):
         """
         
         Args:
-            feature_maps: [p2, p3, p4, p5, p6] or [c5], feature pyramid or single feature map.
-            gt_bboxes: [N, M, (x1, y1, x2, y2)].
-            img_shape: [height, width], Image shape. 
+            feature_maps(Variable): [p2, p3, p4, p5, p6] or [c5], feature pyramid or single feature 
+                map.
+            gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)].
+            img_shape(Tensor): [height, width], Image shape. 
         Returns:
              rois(Tensor): [N, M, (idx, x1, y1, x2, y2)] N: batch size, M: number of roi after 
                 nms, idx: bbox index in mini-batch.

@@ -34,6 +34,9 @@ class RoiAlign(nn.Module):
         # transform origin image coord to feature map coord.
         stride = img_height / feature_map.size(2)  # stride of feature map, e.g. C4:16
         bboxes /= stride
-        roi_pool = self.roi_align(feature_map, Variable(bboxes), Variable(bbox_idx.int()))
+
+        bboxes = Variable(bboxes, requires_grad=False)
+        bbox_idx = Variable(bbox_idx.int(), requires_grad=False)
+        roi_pool = self.roi_align(feature_map, bboxes, bbox_idx)
 
         return roi_pool

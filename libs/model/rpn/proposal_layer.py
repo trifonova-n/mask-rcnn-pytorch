@@ -5,21 +5,20 @@ from __future__ import absolute_import
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ross Girshick and Sean Bell
 # --------------------------------------------------------
+#
 # --------------------------------------------------------
 # Reorganized and modified by Jianwei Yang and Jiasen Lu
+# --------------------------------------------------------
+# modified by Geeshang Xu
 # --------------------------------------------------------
 
 import torch
 import torch.nn as nn
 import numpy as np
-import math
-import yaml
 from .config import cfg
 from .generate_anchors import generate_anchors
 from .bbox_transform import bbox_transform_inv, clip_boxes, clip_boxes_batch
 from libs.nms.pth_nms import pth_nms as nms
-
-import pdb
 
 DEBUG = False
 
@@ -123,6 +122,15 @@ class _ProposalLayer(nn.Module):
 
         scores_keep = scores
         proposals_keep = proposals
+
+        if not self.training:
+            # filter out score below threshold
+            assert batch_size == 1
+            scores_keep_idx = torch.nonzero(scores_keep > 0.5).view(-1)
+            if scores_keep_idx.numel() != 0:
+                scores_keep = scores_keep[:, scores_keep_idx]
+                proposals_keep = proposals_keep[:, scores_keep_idx]
+
         _, order = torch.sort(scores_keep, 1, True)
 
         output = scores.new(batch_size, post_nms_topN, 6).zero_()
@@ -175,5 +183,5 @@ class _ProposalLayer(nn.Module):
         ws = boxes[:, :, 2] - boxes[:, :, 0] + 1
         hs = boxes[:, :, 3] - boxes[:, :, 1] + 1
         keep = (
-        (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size.view(-1, 1).expand_as(hs)))
+            (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size.view(-1, 1).expand_as(hs)))
         return keep

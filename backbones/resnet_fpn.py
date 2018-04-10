@@ -1,15 +1,15 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet101
+from torchvision.models import resnet
 
 
-class ResNet_101_FPN(nn.Module):
-    """ResNet 101 FPN backbone feature map extractor.
+class ResNetFPN(nn.Module):
+    """ResNet FPN backbone feature map extractor.
     
     """
 
-    def __init__(self, pretrained=None):
-        super(ResNet_101_FPN, self).__init__()
+    def __init__(self, resnet_layer, pretrained=None):
+        super(ResNetFPN, self).__init__()
         self.lateral_conv1 = nn.Conv2d(2048, 256, kernel_size=1)
         self.lateral_conv2 = nn.Conv2d(1024, 256, kernel_size=1)
         self.lateral_conv3 = nn.Conv2d(512, 256, kernel_size=1)
@@ -20,10 +20,18 @@ class ResNet_101_FPN(nn.Module):
         self.anti_aliasing_conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
         self._init_parameters()
 
-        if pretrained is not None:
-            self.resnet = resnet101(pretrained=True)
-        else:
-            self.resnet = resnet101()
+        assert resnet_layer in [18, 34, 50, 101, 152]
+        pretrained = True if pretrained is not None else False
+        if resnet_layer == 18:
+            self.resnet = resnet.resnet18(pretrained)
+        elif resnet_layer == 34:
+            self.resnet = resnet.resnet34(pretrained)
+        elif resnet_layer == 50:
+            self.resnet = resnet.resnet50(pretrained)
+        elif resnet_layer == 101:
+            self.resnet = resnet.resnet101(pretrained)
+        elif resnet_layer == 152:
+            self.resnet = resnet.resnet152(pretrained)
 
     def _init_parameters(self):
         for m in self.modules():

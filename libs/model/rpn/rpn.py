@@ -86,7 +86,7 @@ class _RPN(nn.Module):
         self.rpn_loss_box = 0
 
         # generating training labels and build the rpn loss
-        if self.training:
+        if self.training or gt_boxes is not None:  # model.train() and valid model.eval()
             assert gt_boxes is not None
 
             rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))

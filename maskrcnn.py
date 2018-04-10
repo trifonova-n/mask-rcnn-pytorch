@@ -1,5 +1,5 @@
-from backbones.resnet_101_fpn import ResNet_101_FPN
-from backbones.resnet_101 import ResNet_101
+from backbones.resnet_fpn import ResNetFPN
+from backbones.resnet import ResNet
 from heads.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from heads.mask import MaskHead
 from tools.utils import calc_iou, coord_corner2center, coord_center2corner
@@ -36,15 +36,15 @@ class MaskRCNN(nn.Module):
         self.num_classes = num_classes
         self.pooling_size_clsbbox = (7, 7)
         self.pooling_size_mask = (14, 14)
-        use_fpn = bool(int(self.config['TRAIN']['USE_FPN']))
+        use_fpn = bool(int(self.config['BACKBONE']['USE_FPN']))
         self.use_fpn = use_fpn
         self.train_rpn_only = bool(int(self.config['TRAIN']['TRAIN_RPN_ONLY']))
-
+        resnet_layer = int(self.config['BACKBONE']['RESNET_LAYER'])
         if self.use_fpn:
-            self.backbone_fpn = ResNet_101_FPN(pretrained=pretrained)
+            self.backbone_fpn = ResNetFPN(resnet_layer, pretrained=pretrained)
             self.depth = 256
         else:
-            self.backbone = ResNet_101(pretrained=pretrained)
+            self.backbone = ResNet(resnet_layer, pretrained=pretrained)
             self.depth = 1024
 
         self.rpn = RPN(self.depth, self.use_fpn)
@@ -66,7 +66,7 @@ class MaskRCNN(nn.Module):
         """
         
         Args:
-            image(Variable): image data. [N, C, H, W]  
+            image(Tensor): image data. [N, C, H, W]  
             gt_classes(Tensor): [N, M], ground truth class ids.
             gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding boxes, coord is 
                 left, top, right, bottom.
@@ -85,25 +85,21 @@ class MaskRCNN(nn.Module):
                 e.g. result[0][0]['mask_pred'] stands for the first object's mask prediction of
                     the first image of mini-batch.
         """
-        if self.training:
-            assert gt_classes is not None
-            assert gt_bboxes is not None
-            assert gt_masks is not None
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
-        img_shape = image.data.new(self.batch_size, 2).zero_()
+        img_shape = image.new(self.batch_size, 2).zero_()
         img_shape[:, 0] = self.img_height
         img_shape[:, 1] = self.img_width
         result, maskrcnn_loss = None, 0
         if self.use_fpn:
-            p2, p3, p4, p5, p6 = self.backbone_fpn(image)
+            p2, p3, p4, p5, p6 = self.backbone_fpn(Variable(image, requires_grad=False))
             # feature maps to feed RPN to generate proposals.
             rpn_features = [p2, p3, p4, p5, p6]
             # feature maps to feed prediction heads to refine bbox and predict class and mask.
             head_features = [p2, p3, p4, p5]
         else:
-            feature_map = self.backbone(image)
+            feature_map = self.backbone(Variable(image, requires_grad=False))
             rpn_features = [feature_map]
             head_features = [feature_map]
 
@@ -114,21 +110,20 @@ class MaskRCNN(nn.Module):
             rpn_loss = rpn_loss_cls + rpn_loss_bbox
             return result, rpn_loss
         else:  # train RPN + Predict heads together.
-            if self.training:
-                assert gt_classes is not None and gt_bboxes is not None and gt_masks is not None
+            if gt_classes is not None and gt_bboxes is not None and gt_masks is not None:
                 gen_targets = self._generate_targets(rois, gt_classes, gt_bboxes, gt_masks)
                 rois_sampled, cls_targets, bbox_targets, mask_targets = gen_targets
-
-                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features,
-                                                                       rois_sampled)
+                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features, rois_sampled)
                 head_loss = MaskRCNN._calc_head_loss(cls_prob, bbox_reg, mask_prob,
                                                      cls_targets, bbox_targets, mask_targets)
                 maskrcnn_loss = rpn_loss_cls + rpn_loss_bbox + head_loss
-                result = self._process_result(self.batch_size, rois_sampled, cls_prob, bbox_reg,
+
+            if not self.training:  # valid or test phase
+                # rois value will be changed in _run_predict_head(), so make two copy.
+                rois_head, rois_result = rois.clone(), rois.clone()
+                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features, rois_head)
+                result = self._process_result(self.batch_size, rois_result, cls_prob, bbox_reg,
                                               mask_prob)
-            else:
-                cls_prob, bbox_reg, mask_prob = self._run_predict_head(head_features, rois)
-                result = self._process_result(self.batch_size, rois, cls_prob, bbox_reg, mask_prob)
 
             return result, maskrcnn_loss
 
@@ -140,11 +135,11 @@ class MaskRCNN(nn.Module):
             rois(Tensor): [N, M (n, x1, y1, x2, y2)]
 
         Returns:
-            cls_prob(Tensor): [(NxM)]
-            bbox_reg(Tensor): [(NxM), (dx, dy, dw, dh)]
-            mask_prob(Tensor): [(NxM), 28, 28]
+            cls_prob(Variable): [(NxM), num_classes]
+            bbox_reg(Variable): [(NxM), num_classes, (dx, dy, dw, dh)]
+            mask_prob(Variable): [(NxM), num_classes, 28, 28]
         """
-        rois = rois.contiguous().view(-1, 5)  # [N, M, 5] -> [(NxM), 5]
+        rois = rois.view(-1, 5)  # [N, M, 5] -> [(NxM), 5]
         if self.use_fpn:
             rois_pooling_clsbbox = self._roi_align_fpn(features, rois, mode='clsbbox')
             rois_pooling_mask = self._roi_align_fpn(features, rois, mode='mask')
@@ -194,7 +189,6 @@ class MaskRCNN(nn.Module):
         gt_classes = gt_classes.squeeze(0)
         gt_bboxes = gt_bboxes.squeeze(0)
         gt_masks = gt_masks.squeeze(0)
-
         iou = calc_iou(proposals[:, 1:], gt_bboxes[:, :])
         max_iou, max_iou_idx_gt = torch.max(iou, dim=1)
         pos_index_prop = torch.nonzero(max_iou >= rois_pos_thresh).view(-1)
@@ -208,9 +202,11 @@ class MaskRCNN(nn.Module):
             mask_targets = gt_masks.new(1, mask_size[0], mask_size[1]).zero_()
             sampled_rois = proposals[:1, :]
             sampled_rois = sampled_rois.view(batch_size, -1, 5)
+            cls_targets = Variable(cls_targets, requires_grad=False)
+            bbox_targets = Variable(bbox_targets, requires_grad=False)
+            mask_targets = Variable(mask_targets, requires_grad=False)
 
-            return sampled_rois, Variable(cls_targets), Variable(bbox_targets), Variable(
-                mask_targets)
+            return sampled_rois, cls_targets, bbox_targets, mask_targets
 
         pos_index_gt = max_iou_idx_gt[pos_index_prop]
         assert pos_index_prop.size() == pos_index_gt.size()
@@ -221,7 +217,7 @@ class MaskRCNN(nn.Module):
         neg_num = neg_index_prop.size(0)
         sample_size_pos = min(sample_size_pos, pos_num)
         # keep the ratio of positive and negative rois, if there are not enough positives.
-        sample_size_neg = int((pos_num / rois_pos_ratio) * (1 - rois_pos_ratio) + 1)
+        sample_size_neg = int((sample_size_pos / rois_pos_ratio) * (1 - rois_pos_ratio) + 1)
         sample_size_neg = min(sample_size_neg, neg_num)
 
         sample_index_pos = random.sample(range(pos_num), sample_size_pos)
@@ -273,8 +269,8 @@ class MaskRCNN(nn.Module):
             # for using of small image input, like maybe short side 256, here alpha is
             # parameterized by image short side size.
             alpha = 224 * min(self.img_height, self.img_width) / 800
-            bbox_width = torch.abs(rois.new([bbox[2] - bbox[0]]).float())
-            bbox_height = torch.abs(rois.new([bbox[3] - bbox[1]]).float())
+            bbox_width = torch.abs(rois.new([bbox[2] - bbox[0] + 1]).float())
+            bbox_height = torch.abs(rois.new([bbox[3] - bbox[1] + 1]).float())
             log2 = torch.log(torch.sqrt(bbox_height * bbox_width) / alpha) / torch.log(
                 rois.new([2]).float())
             level = torch.floor(4 + log2) - 2  # 4 stands for C4, minus 2 to make level 0 indexed
@@ -351,7 +347,6 @@ class MaskRCNN(nn.Module):
             # remove background and predicted ids.
             keep_index = (cls_pred > 0)
             obj_detected = []
-
             for i in range(num_rois):
                 if int(keep_index[i]):
                     pred_dict = {'proposal': None, 'cls_pred': None, 'bbox_pred': None,
@@ -375,9 +370,8 @@ class MaskRCNN(nn.Module):
                     py2 = int(torch.clamp(py2, max=self.img_height - 1, min=0))
                     mask_height, mask_width = py2 - py1 + 1, px2 - px1 + 1
                     # leave malformed bbox alone, will met this in training.
-                    if mask_height == 0 or mask_width == 0 or py1 > py2 or px1 > px2:
+                    if mask_height == 0 or mask_width == 0 or py1 >= py2 or px1 >= px2:
                         continue
-
                     pred_dict['bbox_pred'] = torch.LongTensor([px1, py1, px2, py2])
                     mask_threshold = float(self.config['TEST']['MASK_THRESH'])
                     mask_prob_keep = mask_prob[i, :, :, :]
@@ -431,17 +425,15 @@ class MaskRCNN(nn.Module):
         img_width = gt_masks.size(3)
         mask_targets = gt_masks.new(num_rois, mask_size[0], mask_size[1]).zero_()
         for i in range(num_rois):
-            try:
-                x1, y1, x2, y2 = proposals[i, :]
-                x1 = int(max(min(img_width - 1, x1), 0))
-                x2 = int(max(min(img_width - 1, x2), 0))
-                y1 = int(max(min(img_height - 1, y1), 0))
-                y2 = int(max(min(img_height - 1, y2), 0))
-                mask = Variable(gt_masks[i, :, y1:y2, x1:x2], requires_grad=False)
-                mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
-                mask_targets[i, :, :] = mask_resize.data[0, :, :]
-            except ValueError:
-                print(x1, y1, x2, y2)
+            x1, y1, x2, y2 = proposals[i, :]
+            x1 = int(max(min(img_width - 1, x1), 0))
+            x2 = int(max(min(img_width - 1, x2), 0))
+            y1 = int(max(min(img_height - 1, y1), 0))
+            y2 = int(max(min(img_height - 1, y2), 0))
+            mask = Variable(gt_masks[i, :, y1:y2 + 1, x1:x2 + 1], requires_grad=False)
+            mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
+            mask_targets[i, :, :] = mask_resize.data[0, :, :]
+
         return mask_targets
 
     @staticmethod
@@ -482,4 +474,5 @@ class MaskRCNN(nn.Module):
         mask_loss /= num_foreground
 
         head_loss = cls_loss + bbox_loss + mask_loss
+
         return head_loss

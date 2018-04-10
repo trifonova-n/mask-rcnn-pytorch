@@ -6,7 +6,8 @@ There is still some work to be done.
 - [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
 whole model 
 - [ ] refined documentation and examples
- 
+- [ ] replace third party libs nms and roi_align with pure PyTorch, but need wait NMS natively 
+supported version of PyTorch, which is coming soon.  
 
 ## Usage
 
