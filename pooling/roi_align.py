@@ -22,15 +22,15 @@ class RoiAlign(nn.Module):
         
         Args:
             feature_map: [N, C, H, W]
-            rois(Tensor): [(NxM), (n, x1, y1, x2, y2)], n is mini-batch index, coord is in origin 
-                image scale.
+            rois(Tensor): [(NxM), (n, score, x1, y1, x2, y2)], n is mini-batch index, coord is in 
+                origin image scale.
             img_height(int): origin image height
         Returns:
             roi_pool: MxCxoHxoW  M: number of roi in all mini-batch.
             
         """
         bbox_idx = rois[:, 0]
-        bboxes = rois[:, 1:]
+        bboxes = rois[:, 2:]
         # transform origin image coord to feature map coord.
         stride = img_height / feature_map.size(2)  # stride of feature map, e.g. C4:16
         bboxes /= stride

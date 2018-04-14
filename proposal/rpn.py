@@ -66,10 +66,10 @@ class RPN(nn.Module):
             gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)].
             img_shape(Tensor): [height, width], Image shape. 
         Returns:
-             rois(Tensor): [N, M, (idx, x1, y1, x2, y2)] N: batch size, M: number of roi after 
-                nms, idx: bbox index in mini-batch.
-             rpn_loss_cls(Tensor): Classification loss
-             rpn_loss_bbo(Tensor)x: Bounding box regression loss
+             rois(Tensor): [N, M, (idx, score, x1, y1, x2, y2)] N: batch size, M: number of roi 
+                after nms, idx: bbox index in mini-batch, score: objectness of roi.
+             rpn_loss_cls(Tensor): Classification loss.
+             rpn_loss_bbo(Tensor)x: Bounding box regression loss.
         """
         batch_size = feature_maps[0].size(0)
         assert batch_size == 1, "batch_size > 1 will add support later."
@@ -101,14 +101,12 @@ class RPN(nn.Module):
             bbox = rois_pre_nms[0, :, 2:]
             keep_idx = nms(torch.cat([bbox, score], 1), nms_thresh)
             keep_idx = keep_idx[:post_nms_top_n]
-            rois_per_img = torch.cat([rois_pre_nms[:, idx, :] for idx in keep_idx])
-            rois = rois_per_img[:, [0, 2, 3, 4, 5]]  # remove roi_score
+            rois = torch.cat([rois_pre_nms[:, idx, :] for idx in keep_idx])
             rois = rois.unsqueeze(0)
             rpn_loss_cls /= len(feature_maps)
             rpn_loss_bbox /= len(feature_maps)
         else:
             rpn_result = self.rpn(feature_maps[0], img_shape, gt_bboxes, None)
-            rois_rpn, rpn_loss_cls, rpn_loss_bbox = rpn_result
-            rois = rois_rpn[:, :, [0, 2, 3, 4, 5]]  # remove roi_score
+            rois, rpn_loss_cls, rpn_loss_bbox = rpn_result
 
         return rois, rpn_loss_cls, rpn_loss_bbox
