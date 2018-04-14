@@ -2,9 +2,13 @@
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
+This implementation is verified with some custom datasets, achieved good speed and result, quantitative results on
+some standard datasets like PASCAL VOC and COCO will release soon.
+
 There is still some work to be done.
 - [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
 whole model 
+- [ ] support batch size >= 2.
 - [ ] refined documentation and examples
 - [ ] replace third party libs nms and roi_align with pure PyTorch, but need wait NMS natively 
 supported version of PyTorch, which is coming soon.  
@@ -34,28 +38,79 @@ Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 | sm_70 | + Volta support|V100|
 
 ### Using MaskRCNN
-```python
 
+**NOTE: Two examples are under working, one show how to train custom dataset using PyTorch 
+typical pipeline (dataset, dataloader, transform, train, test), the other show how to train COCO
+dataset. Actually, you may figure out how to use this implementation by reading docstring 
+(\*^\_\_^\*), I am trying my best to 
+document this project.**
+
+```python
 # Take a look at config.ini, config some hyper-parameters.
 
 import sys
 # add this project's root directory to PATH
-sys.path.append("/home/geeshang/mask-rcnn-pytorch/")
+sys.path.append("/ANY_DIR_YOU_CLONE_AT/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
+from torch.utils.data import Dataset, DataLoader
 
 # use pretrained weights: 
 # 1) "imagenet", just backbone feature map extractor trained on ImageNet.
 # 2) "coco", whole maskrcnn model pretrained on COCO.
+mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
+``` 
+ 
+##### Example 1: Custom Dataset Using PyTorch Typical Pipeline.
+I will create a simple dummy dataset using as example, and give the
+download link soon. 
+```python
+class DummyDataset(Dataset):
+    def __init__(self):
+        pass
+    def __getitem__(self, index):
+        pass
+    def __len__(self):
+        pass
 
-mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet") 
+# make sure your dataloader return below as the docstring says. 
+"""
+image(Tensor): image data. [N, C, H, W]  
+gt_classes(Tensor): [N, M], ground truth class ids.
+gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding boxes, coord is 
+    left, top, right, bottom.
+gt_masks(Tensor): [N, M, 1, H, W], ground truth masks.
+"""
+dummy_dataloader = DataLoader(dataset=DummyDataset, batch_size=1)
+
+def train_epoch():
+    pass
+    
+def val_epoch():
+    pass
 
 def train():
     pass
+
 def test():
     pass
 ```
+##### Example 2: Train COCO Dataset.
+```python
+    pass(release later)
 
-## Source directory
+```
+
+## Result on Standard Dataset 
+(release later)
+
+| dataset | train memory(GB) | train time (hr/epoch) |inference time(s/img) |box AP| mask AP |
+| :---------------|:--------|---|:-----|----|----|
+| PASCAL VOC 2007 |  |  | | | |
+| PASCAL VOC 2012 |  |  | | | |
+| COCO 2017       |  |  | | | |
+
+
+## Source Directory
 
 Source directories are arranged according to internal models or execution process of Mask R-CNN 
 model, trying to decouple these models or processes to make it easy for adding experimental 
