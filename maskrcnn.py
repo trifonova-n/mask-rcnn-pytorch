@@ -419,11 +419,11 @@ class MaskRCNN(nn.Module):
 
                 px1, py1, px2, py2 = props_refined[i, 2:].int()
                 mask_height, mask_width = py2 - py1 + 1, px2 - px1 + 1
-                mask_threshold = float(self.config['TEST']['MASK_THRESH'])
-                mask_prob_keep = mask_prob[i, :, :, :]
-                mask = (mask_prob_keep[cls_ids[i], :, :] >= mask_threshold).float()
+                mask = mask_prob[i, :, :, :][cls_ids[i], :, :]
                 mask = Variable(mask.unsqueeze(0), requires_grad=False)
                 mask_resize = F.adaptive_avg_pool2d(mask, (mask_height, mask_width)).data
+                mask_threshold = float(self.config['TEST']['MASK_THRESH'])
+                mask_resize = mask_resize >= mask_threshold
                 mask_pred = mask_prob.new(self.img_height, self.img_width).zero_()
                 mask_pred[py1:py2 + 1, px1:px2 + 1] = mask_resize
                 pred_dict['mask_pred'] = mask_pred.cpu()
