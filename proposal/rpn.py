@@ -39,20 +39,23 @@ class RPN(nn.Module):
             # monkey patches adapt libs/RPN to support FPN.
             ################################################
 
+            # define the convrelu layers processing input feature map
+            self.rpn.RPN_Conv = nn.Conv2d(256, 256, 3, 1, 1, bias=True)
+
             # define bg/fg classification score layer
             self.rpn.nc_score_out = len(self.anchor_ratios) * 2  # 2(bg/fg) * 3 (anchors)
-            self.rpn.RPN_cls_score = nn.Conv2d(512, self.rpn.nc_score_out, 1, 1, 0)
+            self.rpn.RPN_cls_score = nn.Conv2d(256, self.rpn.nc_score_out, 1, 1, 0)
 
             # define anchor box offset prediction layer
             self.rpn.nc_bbox_out = len(self.anchor_ratios) * 4  # 4(coords) * 3 (anchors)
-            self.rpn.RPN_bbox_pred = nn.Conv2d(512, self.rpn.nc_bbox_out, 1, 1, 0)
+            self.rpn.RPN_bbox_pred = nn.Conv2d(256, self.rpn.nc_bbox_out, 1, 1, 0)
 
             self.RPN_anchor_targets = [_AnchorTargetLayer(feat_stride=feature_strides[idx],
-                                                          scales=[self.anchor_scales[idx]],
+                                                          scales=[scale],
                                                           ratios=self.anchor_ratios)
                                        for idx, scale in enumerate(self.anchor_scales)]
             self.RPN_proposals = [_ProposalLayer(feat_stride=feature_strides[idx],
-                                                 scales=[self.anchor_scales[idx]],
+                                                 scales=[scale],
                                                  ratios=self.anchor_ratios)
                                   for idx, scale in enumerate(self.anchor_scales)]
             #################################################
@@ -69,16 +72,18 @@ class RPN(nn.Module):
              rois(Tensor): [N, M, (idx, score, x1, y1, x2, y2)] N: batch size, M: number of roi 
                 after nms, idx: bbox index in mini-batch, score: objectness of roi.
              rpn_loss_cls(Tensor): Classification loss.
-             rpn_loss_bbo(Tensor)x: Bounding box regression loss.
+             rpn_loss_bbox(Tensor): Bounding box regression loss.
         """
         batch_size = feature_maps[0].size(0)
         assert batch_size == 1, "batch_size > 1 will add support later."
 
         if self.use_fpn:
             if self.training:
+                pre_nms_top_n = int(self.config['FPN']['TRAIN_FPN_PRE_NMS_TOP_N'])
                 post_nms_top_n = int(self.config['FPN']['TRAIN_FPN_POST_NMS_TOP_N'])
                 nms_thresh = float(self.config['FPN']['TRAIN_FPN_NMS_THRESH'])
             else:
+                pre_nms_top_n = int(self.config['FPN']['TEST_FPN_PRE_NMS_TOP_N'])
                 post_nms_top_n = int(self.config['FPN']['TEST_FPN_POST_NMS_TOP_N'])
                 nms_thresh = float(self.config['FPN']['TEST_FPN_NMS_THRESH'])
             rois_pre_nms = []
@@ -91,13 +96,14 @@ class RPN(nn.Module):
                 roi_single, loss_cls_single, loss_bbox_single = rpn_result
                 rpn_loss_cls += loss_cls_single
                 rpn_loss_bbox += loss_bbox_single
-
                 rois_pre_nms.append(roi_single)
 
             rois_pre_nms = torch.cat(rois_pre_nms, 1)  # [N, M, (n, score, x1, y1, x2, y2)].
             # Apply nms to result of all pyramid rois.
             score = rois_pre_nms[0, :, 1]
-            score.unsqueeze_(-1)
+            order = torch.sort(score, dim=0, descending=True)[1]
+            rois_pre_nms = rois_pre_nms[:, order, :][:, :pre_nms_top_n, :]
+            score = rois_pre_nms[0, :, 1].unsqueeze(-1)
             bbox = rois_pre_nms[0, :, 2:]
             keep_idx = nms(torch.cat([bbox, score], 1), nms_thresh)
             keep_idx = keep_idx[:post_nms_top_n]
@@ -108,5 +114,4 @@ class RPN(nn.Module):
         else:
             rpn_result = self.rpn(feature_maps[0], img_shape, gt_bboxes, None)
             rois, rpn_loss_cls, rpn_loss_bbox = rpn_result
-
         return rois, rpn_loss_cls, rpn_loss_bbox

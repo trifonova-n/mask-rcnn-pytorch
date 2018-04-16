@@ -189,7 +189,7 @@ class MaskRCNN(nn.Module):
 
         """
         rois_sample_size = int(self.config['TRAIN']['ROIS_SAMPLE_SIZE'])
-        rois_pos_ratio = float(self.config['TRAIN']['ROIS_POS_RATIO'])
+        rois_pos_fraction = float(self.config['TRAIN']['ROIS_POS_FRACTION'])
         rois_pos_thresh = float(self.config['TRAIN']['ROIS_POS_THRESH'])
         rois_neg_thresh = float(self.config['TRAIN']['ROIS_NEG_THRESH'])
 
@@ -223,13 +223,13 @@ class MaskRCNN(nn.Module):
         pos_index_gt = max_iou_idx_gt[pos_index_prop]
         assert pos_index_prop.size() == pos_index_gt.size()
 
-        sample_size_pos = int(rois_pos_ratio * rois_sample_size)
+        sample_size_pos = int(rois_pos_fraction * rois_sample_size)
 
         pos_num = pos_index_prop.size(0)
         neg_num = neg_index_prop.size(0)
         sample_size_pos = min(sample_size_pos, pos_num)
         # keep the ratio of positive and negative rois, if there are not enough positives.
-        sample_size_neg = int((sample_size_pos / rois_pos_ratio) * (1 - rois_pos_ratio) + 1)
+        sample_size_neg = int((sample_size_pos / rois_pos_fraction) * (1 - rois_pos_fraction) + 1)
         sample_size_neg = min(sample_size_neg, neg_num)
 
         sample_index_pos = random.sample(range(pos_num), sample_size_pos)
@@ -364,7 +364,7 @@ class MaskRCNN(nn.Module):
         if self.train_rpn_only:
             obj_detected = []
             for i in range(proposals.size(0)):
-                pred_dict = {'proposal': proposals[i, 1:].cpu()}
+                pred_dict = {'proposal': proposals[i, 2:].cpu()}
                 obj_detected.append(pred_dict)
             result.append(obj_detected)
             return result
@@ -396,10 +396,22 @@ class MaskRCNN(nn.Module):
                 return result
 
             # Apply nms.
-            post_nms_top_n = int(self.config['FPN']['TEST_FPN_POST_NMS_TOP_N'])
-            nms_thresh = float(self.config['FPN']['TEST_FPN_NMS_THRESH'])
-            keep_idx = nms(torch.cat([props_refined[:, 2:], props_refined[:, 1].unsqueeze(-1)],
-                                     dim=1), nms_thresh)
+            if self.use_fpn:
+                pre_nms_top_n = int(self.config['FPN']['TEST_FPN_PRE_NMS_TOP_N'])
+                post_nms_top_n = int(self.config['FPN']['TEST_FPN_POST_NMS_TOP_N'])
+                nms_thresh = float(self.config['FPN']['TEST_FPN_NMS_THRESH'])
+            else:
+                pre_nms_top_n = int(self.config['RPN']['TEST_RPN_PRE_NMS_TOP_N'])
+                post_nms_top_n = int(self.config['RPN']['TEST_RPN_POST_NMS_TOP_N'])
+                nms_thresh = float(self.config['RPN']['TEST_RPN_NMS_THRESH'])
+
+            score = props_refined[:, 1]
+            order = torch.sort(score, dim=0, descending=True)[1]
+            props_origin = props_origin[order, :][:pre_nms_top_n, :]
+            props_refined = props_refined[order, :][:pre_nms_top_n, :]
+            score = props_refined[:, 1].unsqueeze(-1)
+            bbox = props_refined[:, 2:]
+            keep_idx = nms(torch.cat([bbox, score], 1), nms_thresh)
             keep_idx = keep_idx[:post_nms_top_n]
             props_origin = torch.cat([props_origin[idx, :].unsqueeze(0) for idx in keep_idx])
             props_refined = torch.cat([props_refined[idx, :].unsqueeze(0) for idx in keep_idx])
