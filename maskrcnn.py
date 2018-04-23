@@ -88,9 +88,12 @@ class MaskRCNN(nn.Module):
                     the first image of mini-batch.
         """
 
-        if not self.training and (gt_classes is not None and gt_bboxes is not None
+        if not self.training and (gt_classes is not None
+                                  and gt_bboxes is not None
                                   and gt_masks is not None):
             self.validating = True
+        else:
+            self.validating = False
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
@@ -515,11 +518,8 @@ class MaskRCNN(nn.Module):
         """
         # calculate classification head loss.
         cls_loss = F.nll_loss(cls_prob, cls_targets)
-        # cls_pred = torch.max(cls_prob, 1)[1]
-
         # calculate bbox regression and mask head loss.
         bbox_loss, mask_loss = 0, 0
-        # num_all = cls_prob.size(0)
         num_foreground = bbox_targets.size(0)
 
         for i in range(num_foreground):

@@ -340,7 +340,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     # Matplotlib Axis
     if not ax:
         _, ax = plt.subplots(1, figsize=(12, 12))
-
+        # get rid of white space around border
     # Generate random colors
     colors = random_colors(N)
 
