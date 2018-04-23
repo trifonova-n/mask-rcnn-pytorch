@@ -1,9 +1,11 @@
 # Mask R-CNN implementation in PyTorch 
 
-![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
+Read this in other languages: [English](./README.md) [中文](./README.zh.md) 
 
 This implementation is verified with some custom datasets, achieved good speed and result, quantitative results on
 some standard datasets like PASCAL VOC and COCO will release soon.
+
+![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 There is still some work to be done.
 - [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
@@ -39,12 +41,6 @@ Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
 
 ### Using MaskRCNN
 
-**NOTE: Two examples are under working, one show how to train custom dataset using PyTorch 
-typical pipeline (dataset, dataloader, transform, train, test), the other show how to train COCO
-dataset. Actually, you may figure out how to use this implementation by reading docstring 
-(\*^\_\_^\*), I am trying my best to 
-document this project.**
-
 ```python
 # Take a look at config.ini, config some hyper-parameters.
 
@@ -56,49 +52,21 @@ from torch.utils.data import Dataset, DataLoader
 
 # use pretrained weights: 
 # 1) "imagenet", just backbone feature map extractor trained on ImageNet.
-# 2) "coco", whole maskrcnn model pretrained on COCO.
 mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
 ``` 
  
-##### Example 1: Custom Dataset Using PyTorch Typical Pipeline.
-I will create a simple dummy dataset using as example, and give the
-download link soon. 
-```python
-class DummyDataset(Dataset):
-    def __init__(self):
-        pass
-    def __getitem__(self, index):
-        pass
-    def __len__(self):
-        pass
+#### Example 1: Train Custom Dataset with PyTorch Typical Pipeline.
+1. Download the tiny (25MB) dataset  CST-Dataset
 
-# make sure your dataloader return below as the docstring says. 
-"""
-image(Tensor): image data. [N, C, H, W]  
-gt_classes(Tensor): [N, M], ground truth class ids.
-gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding boxes, coord is 
-    left, top, right, bottom.
-gt_masks(Tensor): [N, M, 1, H, W], ground truth masks.
-"""
-dummy_dataloader = DataLoader(dataset=DummyDataset, batch_size=1)
+    Download link: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
 
-def train_epoch():
-    pass
-    
-def val_epoch():
-    pass
+2. replace `config.ini` with `examples/cst-dataset/config.ini`
 
-def train():
-    pass
+3. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-def test():
-    pass
-```
-##### Example 2: Train COCO Dataset.
-```python
-    pass(release later)
+#### Example 2: Train COCO Dataset.
 
-```
+release later
 
 ## Result on Standard Dataset 
 (release later)
@@ -128,7 +96,7 @@ RoI(Region of Interest) proposal model, like RPN and variants.
 
 #### 3. pooling:
 
-Pooling for fixed dimensional representation, like RoIAlign and some variants.
+Pooling for fixed dimensional representation(e.g. 14x14 pixels), like RoIAlign and some variants.
 
 #### 4. heads:
 Predict heads include classification head, bounding box head, mask head and their variants.
