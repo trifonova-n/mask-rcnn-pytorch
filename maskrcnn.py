@@ -97,7 +97,7 @@ class MaskRCNN(nn.Module):
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
-        img_shape = image.new(self.batch_size, 2).zero_()
+        img_shape = image.new_zeros((self.batch_size, 2), dtype=torch.int32)
         img_shape[:, 0] = self.img_height
         img_shape[:, 1] = self.img_width
         result, maskrcnn_loss = None, 0

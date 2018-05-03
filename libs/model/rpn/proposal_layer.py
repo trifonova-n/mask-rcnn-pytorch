@@ -160,7 +160,7 @@ class _ProposalLayer(nn.Module):
             if post_nms_topN > 0:
                 keep_idx_i = keep_idx_i[:post_nms_topN]
             proposals_single = proposals_single[keep_idx_i, :]
-            scores_single = scores_single[keep_idx_i, :]
+            scores_single = scores_single[keep_idx_i, :].view(-1)
 
             # padding 0 at the end.
             num_proposal = proposals_single.size(0)
