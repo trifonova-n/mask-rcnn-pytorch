@@ -19,19 +19,27 @@ from configparser import ConfigParser
 class MaskRCNN(nn.Module):
     """Mask R-CNN model.
     
-    References: https://arxiv.org/pdf/1703.06870.pdf
+    References: Mask R-CNN: https://arxiv.org/pdf/1703.06870.pdf
     
-    Notes: In comments below, we assume N: batch size C: number of feature map channel, H: image 
-        height, W: image width.
-
+    Notes: In docstring, N: batch size, M: number of ground-truth objects,
+            C: number of feature map channels, H: image height, W: image width.
     """
 
     def __init__(self, num_classes, pretrained=None):
+        """
+        
+        Args:
+            num_classes(int): number of classes, background should be counted in.
+                e.g: there are 100 foreground objects, num_classes should be 101.                    
+            pretrained(str): 'imagenet' or 'coco', set 'imagenet' indicate just
+                backbone use imagenet pretrained weights, 'coco' indicate whole
+                Mask R-CNN model use pretrained weights on COCO dataset.
+        """
+
         super(MaskRCNN, self).__init__()
         if pretrained is not None:
-            assert pretrained in ['imagenet', 'voc2007', 'coco']
-            assert pretrained not in ['voc2007', 'coco'], ("VOC2007 and COCO pretrained weights "
-                                                           "will be added soon.")
+            assert pretrained in ['imagenet', 'coco']
+            assert pretrained not in ['coco'], "COCO pretrained weights is not available yet."
         self.config = ConfigParser()
         self.config.read(os.path.abspath(os.path.join(__file__, "../", "config.ini")))
         self.num_classes = num_classes
@@ -70,22 +78,24 @@ class MaskRCNN(nn.Module):
         Args:
             image(Tensor): image data. [N, C, H, W]  
             gt_classes(Tensor): [N, M], ground truth class ids.
-            gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding boxes, coord is 
-                left, top, right, bottom.
-            gt_masks(Tensor): [N, M, 1, H, W], ground truth masks.
+            gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding
+                boxes, coord is in format (left, top, right, bottom).
+            gt_masks(Tensor): [N, M, H, W], ground truth masks.
             
         Returns:
-            result: list of lists of dict, outer list is mini-batch, inner list is detected objects,
-                dict contains stuff below.
+            result(list of lists of dict): the outer list is mini-batch, the
+                inner list is detected objects, the dict contains keys below.
                 
-                dict_key:
-                    'proposal': (x1, y1, x2, y2), course bbox from RPN proposal.
-                    'cls_pred': predicted class id.
-                    'bbox_pred': (x1, y1, x2, y2), refined bbox from prediction head.
-                    'mask_pred': [H, W], predicted mask.
-                    
-                e.g. result[0][0]['mask_pred'] stands for the first object's mask prediction of
-                    the first image of mini-batch.
+            |------------------------------------------------------------------|
+            |keys in result dict:                                              |
+            |    'proposal': (x1, y1, x2, y2), course bbox from RPN proposal.  |
+            |    'cls_pred': predicted class id.                               |
+            |    'bbox_pred': (x1, y1, x2, y2), refined bbox from head.        |
+            |    'mask_pred': [H, W], predicted mask.                          |                 
+            |                                                                  |
+            |e.g. result[0][0]['mask_pred'] stands for the first object's mask |
+            |    prediction of the first image in mini-batch.                  |
+            |------------------------------------------------------------------|
         """
 
         if not self.training and (gt_classes is not None
@@ -94,6 +104,11 @@ class MaskRCNN(nn.Module):
             self.validating = True
         else:
             self.validating = False
+
+        if self.training or self.validating:
+            assert (image.dim() == 4 and gt_classes.dim() == 2
+                    and gt_bboxes.dim() == 3 and gt_masks.dim() == 4), (
+                "Wrong dimension number.")
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
@@ -149,6 +164,7 @@ class MaskRCNN(nn.Module):
                 testing, in test stage mask head use refined bbox, self._process_result() will 
                 handle this.
         """
+
         mask_prob = None
 
         rois = rois.view(-1, 6)  # [N, M, 6] -> [(NxM), 6]
@@ -176,8 +192,7 @@ class MaskRCNN(nn.Module):
                 idx is batch size index. 
             gt_classes(Tensor): [N, b], ground truth class ids.
             gt_bboxes(Tensor): [N, b, (x1, y1, x2, y2)], ground truth bounding boxes.
-            gt_masks(Tensor): [(N, b, 1, H, W], ground truth masks, H and W for origin image height 
-                and width.  
+            gt_masks(Tensor): [(N, b, H, W], ground truth masks.
 
         Returns: 
             sampled_rois(Tensor): [N, c, (idx, score, x1, y1, x2, y2)], proposals after sampled to 
@@ -187,10 +202,10 @@ class MaskRCNN(nn.Module):
                 regression, see R-CNN paper for meaning details.  
             mask_targets(Variable): [(Nxc), 28, 28], train targets for mask prediction.
 
-        Notes: N: batch_size, a: number of proposals from FRN, b: number of ground truth objects,
-            c: number of rois to train.
-
+        Notes: a: number of proposals from FRN, b: number of ground truth objects, c: number 
+            of rois to train.
         """
+
         rois_sample_size = int(self.config['TRAIN']['ROIS_SAMPLE_SIZE'])
         rois_pos_fraction = float(self.config['TRAIN']['ROIS_POS_FRACTION'])
         rois_pos_thresh = float(self.config['TRAIN']['ROIS_POS_THRESH'])
@@ -205,6 +220,7 @@ class MaskRCNN(nn.Module):
         gt_classes = gt_classes.squeeze(0)
         gt_bboxes = gt_bboxes.squeeze(0)
         gt_masks = gt_masks.squeeze(0)
+
         iou = calc_iou(proposals[:, 2:], gt_bboxes[:, :])
         max_iou, max_iou_idx_gt = torch.max(iou, dim=1)
         pos_index_prop = torch.nonzero(max_iou >= rois_pos_thresh).view(-1)
@@ -214,7 +230,7 @@ class MaskRCNN(nn.Module):
         if pos_index_prop.numel() == 0 or neg_index_prop.numel() == 0:
             cls_targets = gt_classes.new([0])
             bbox_targets = MaskRCNN._get_bbox_targets(proposals[:1, 2:], proposals[:1, 2:])
-            mask_targets = gt_masks.new(1, mask_size[0], mask_size[1]).zero_()
+            mask_targets = gt_masks.new(mask_size[0], mask_size[1]).zero_()
             sampled_rois = proposals[:1, :]
             sampled_rois = sampled_rois.view(batch_size, -1, 6)
             cls_targets = Variable(cls_targets, requires_grad=False)
@@ -224,8 +240,6 @@ class MaskRCNN(nn.Module):
             return sampled_rois, cls_targets, bbox_targets, mask_targets
 
         pos_index_gt = max_iou_idx_gt[pos_index_prop]
-        assert pos_index_prop.size() == pos_index_gt.size()
-
         sample_size_pos = int(rois_pos_fraction * rois_sample_size)
 
         pos_num = pos_index_prop.size(0)
@@ -256,7 +270,8 @@ class MaskRCNN(nn.Module):
                                                   gt_bboxes[pos_index_sampled_gt, :])
         # mask targets define on positive proposals.
         mask_targets = MaskRCNN._get_mask_targets(bboxes[pos_index_sampled_prop, :],
-                                                  gt_masks[pos_index_sampled_gt, :, :], mask_size)
+                                                  gt_masks[pos_index_sampled_gt, :, :],
+                                                  mask_size)
         sampled_rois = sampled_rois.view(batch_size, -1, 6)
 
         return sampled_rois, Variable(cls_targets), Variable(bbox_targets), Variable(mask_targets)
@@ -471,29 +486,31 @@ class MaskRCNN(nn.Module):
 
     @staticmethod
     def _get_mask_targets(proposals, gt_masks, mask_size):
-        """ Get mask targets, mask target is intersection between proposal and ground
+        """Get mask targets, mask target is intersection between proposal and ground
             truth mask, input coord format is (left, top, right, bottom).
 
         Args:
             proposals(Tensor): [num_rois, 4]
-            gt_masks(Tensor): [num_rois, 1, H, W]
+            gt_masks(Tensor): [N, num_rois, H, W]
             mask_size(tuple): (mask_height, mask_width)
         Returns:
             mask_targets(Tensor): [num_rois, mask_height, mask_width]
         """
         num_rois = proposals.size(0)
-        img_height = gt_masks.size(2)
-        img_width = gt_masks.size(3)
+        img_height = gt_masks.size(1)
+        img_width = gt_masks.size(2)
         mask_targets = gt_masks.new(num_rois, mask_size[0], mask_size[1]).zero_()
+
         for i in range(num_rois):
             x1, y1, x2, y2 = proposals[i, :]
             x1 = int(max(min(img_width - 1, x1), 0))
             x2 = int(max(min(img_width - 1, x2), 0))
             y1 = int(max(min(img_height - 1, y1), 0))
             y2 = int(max(min(img_height - 1, y2), 0))
-            mask = Variable(gt_masks[i, :, y1:y2 + 1, x1:x2 + 1], requires_grad=False)
-            mask_resize = F.adaptive_avg_pool2d(mask, output_size=mask_size)
-            mask_targets[i, :, :] = mask_resize.data[0, :, :]
+            mask = Variable(gt_masks[i, y1:y2 + 1, x1:x2 + 1], requires_grad=False)
+            # mask.unsqueeze(0) work around F.adaptive_avg_pool2d silent crash.
+            mask_resize = F.adaptive_avg_pool2d(mask.unsqueeze(0), output_size=mask_size)
+            mask_targets[i, :, :] = mask_resize.data[0]
 
         return mask_targets
 
