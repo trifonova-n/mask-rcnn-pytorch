@@ -23,6 +23,7 @@ class TestUtils(unittest.TestCase):
         bbox_targets = torch.zeros(3, 4)
         bbox_targets[:, :2] = 0.05
         bbox_targets[:, 2:] = 0
+
         self.assertTrue(MaskRCNN._get_bbox_targets(proposals, gt_bboxes).equal(bbox_targets))
 
     def test__get_mask_targets(self):
@@ -30,6 +31,7 @@ class TestUtils(unittest.TestCase):
 
     def test__calc_maskrcnn_loss(self):
         pass
+
 
 if __name__ == '__main__':
     unittest.main()

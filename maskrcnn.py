@@ -2,7 +2,7 @@ from backbones.resnet_fpn import ResNetFPN
 from backbones.resnet import ResNet
 from heads.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
 from heads.mask import MaskHead
-from tools.utils import calc_iou, coord_corner2center, coord_center2corner
+from tools.detect_utils import calc_iou, bbox_corner2center, bbox_center2corner
 from proposal.rpn import RPN
 from pooling.roi_align import RoiAlign
 from libs.nms.pth_nms import pth_nms as nms
@@ -76,7 +76,7 @@ class MaskRCNN(nn.Module):
         """
         
         Args:
-            image(Tensor): image data. [N, C, H, W]  
+            image(Tensor): [N, C, H, W], image data.  
             gt_classes(Tensor): [N, M], ground truth class ids.
             gt_bboxes(Tensor): [N, M, (x1, y1, x2, y2)], ground truth bounding
                 boxes, coord is in format (left, top, right, bottom).
@@ -287,11 +287,11 @@ class MaskRCNN(nn.Module):
             bbox_refined(Tensor): (x1, y1, x2, y2)
         """
 
-        x, y, w, h = coord_corner2center(proposal).chunk(4)
+        x, y, w, h = bbox_corner2center(proposal).chunk(4)
         dx, dy, dw, dh = bbox_reg.chunk(4)
         px, py = w * dx + x, h * dy + y
         pw, ph = w * torch.exp(dw), h * torch.exp(dh)
-        bbox_refined = coord_center2corner(torch.cat([px, py, pw, ph]))
+        bbox_refined = bbox_center2corner(torch.cat([px, py, pw, ph]))
 
         px1, py1, px2, py2 = bbox_refined.chunk(4)
         px1 = torch.clamp(px1, max=self.img_width - 1, min=0)
@@ -474,8 +474,8 @@ class MaskRCNN(nn.Module):
         Returns:
             bbox_targets(Tensor): [n, 4]
         """
-        proposals = coord_corner2center(proposals)
-        gt_bboxes = coord_corner2center(gt_bboxes)
+        proposals = bbox_corner2center(proposals)
+        gt_bboxes = bbox_corner2center(gt_bboxes)
         xy = (gt_bboxes[:, :2] - proposals[:, :2]) / proposals[:, 2:]
         wh = torch.log(gt_bboxes[:, 2:] / proposals[:, 2:])
         x, y = xy.chunk(2, dim=1)
