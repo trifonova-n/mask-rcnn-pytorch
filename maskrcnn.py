@@ -105,10 +105,7 @@ class MaskRCNN(nn.Module):
         else:
             self.validating = False
 
-        if self.training or self.validating:
-            assert (image.dim() == 4 and gt_classes.dim() == 2
-                    and gt_bboxes.dim() == 3 and gt_masks.dim() == 4), (
-                "Wrong dimension number.")
+        self._check_input(image, gt_classes, gt_bboxes, gt_masks)
 
         self.img_height, self.img_width = image.size(2), image.size(3)
         self.batch_size = image.size(0)
@@ -149,6 +146,16 @@ class MaskRCNN(nn.Module):
                                               cls_prob, bbox_reg)
 
             return result, maskrcnn_loss
+
+    def _check_input(self, image, gt_classes=None, gt_bboxes=None, gt_masks=None):
+        """check model input. 
+        """
+        assert image.dim() == 4 and image.size(1) == 3
+
+        if self.training or self.validating:
+            assert gt_classes.dim() == 2 
+            assert gt_bboxes.dim() == 3 and gt_bboxes.size(-1) == 4
+            assert gt_masks.dim() == 4
 
     def _run_predict_head(self, features, rois):
         """Run classification, bounding box regression and mask prediction heads.
@@ -230,7 +237,7 @@ class MaskRCNN(nn.Module):
         if pos_index_prop.numel() == 0 or neg_index_prop.numel() == 0:
             cls_targets = gt_classes.new([0])
             bbox_targets = MaskRCNN._get_bbox_targets(proposals[:1, 2:], proposals[:1, 2:])
-            mask_targets = gt_masks.new(mask_size[0], mask_size[1]).zero_()
+            mask_targets = gt_masks.new(1, mask_size[0], mask_size[1]).zero_()
             sampled_rois = proposals[:1, :]
             sampled_rois = sampled_rois.view(batch_size, -1, 6)
             cls_targets = Variable(cls_targets, requires_grad=False)
