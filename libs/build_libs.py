@@ -11,7 +11,7 @@ def build_nms(arch):
     cuda_out = os.path.join(curr_dir, "nms", "src", "cuda", "nms_kernel.cu.o")
     build_cuda = "/usr/local/cuda/bin/nvcc -c -o " + cuda_out + " " + cuda_src + " " \
                  + "-x cu -Xcompiler -fPIC -arch={}".format(arch)
-    build_ext = "python " + os.path.join(curr_dir, "nms", "build.py")
+    build_ext = sys.executable + " " + os.path.join(curr_dir, "nms", "build.py")
     subprocess.call(build_cuda, shell=True)
     subprocess.call(build_ext, shell=True)
 
@@ -22,7 +22,7 @@ def build_roi_align(arch):
     cuda_out = os.path.join(curr_dir, "roi_align", "src", "cuda", "crop_and_resize_kernel.cu.o")
     build_cuda = "/usr/local/cuda/bin/nvcc -c -o " + cuda_out + " " + cuda_src + " " \
                  + "-x cu -Xcompiler -fPIC -arch={}".format(arch)
-    build_ext = "python " + os.path.join(curr_dir, "roi_align", "build.py")
+    build_ext = sys.executable + " " + os.path.join(curr_dir, "roi_align", "build.py")
     subprocess.call(build_cuda, shell=True)
     subprocess.call(build_ext, shell=True)
 
