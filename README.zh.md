@@ -6,12 +6,19 @@
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 还有一些工作待完成：
-- [ ] ImageNet预训练权重已经可用，COCO的预训练权重过段时间会放出来。
-- [ ] 支持batch size >= 2
-- [ ] 更完善的文档与例子
-- [ ] 将第三方lib，如nms与roi_align，替换为纯PyTorch的实现，不过要等支持nms的PyTorch下一个版本，这个版本应该很快将会推出。
+
+- [ ] 支持batch size >= 2.
+- [ ] 在COCO数据集上的训练代码样例，已经预训练权重.
+- [ ] 修复下使用FPN的问题
+- [ ] 用纯PyTorch代码替换第三方libs，如NMS与roi_align，torchvision对NMS的支持正在开发当中，需要等一下这个版本.
+- [ ] 支持PyTorch 0.4 还有令人激动的、很快就要发布的1.0版本.
 
 ## 使用用法
+
+### 支持的PyTorch版本
+PyTorch 0.4还未支持, 低于0.3.1的版本不保证可用. 
+
+经过测试版本: torch == 0.3.1 torchvision == 0.2.0
 
 ### 安装
 
@@ -44,13 +51,11 @@ import sys
 # 将此工程的根目录加入到PATH
 sys.path.append("/ANY_DIR_YOU_CLONE_AT/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
-
-# 使用预训练权重: 
-# 1) "imagenet", backbone将会使用在ImageNet上训练的权重.
-mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
+mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 ``` 
  
-#### 例子1: 使用典型的PyTorch流程训练定制训练集.
+### 例子
+#### 1: 使用典型的PyTorch流程训练定制训练集.
 1. 下载这个名为CST-Dataset的小数据集，只有25MB大小。
 
     下载链接: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
@@ -59,7 +64,7 @@ mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
 
 3. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-#### 例子2: 训练COCO训练集.
+#### 2: 训练COCO训练集.
 
 过段时间放出。
 
@@ -68,7 +73,6 @@ mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
 
 | dataset | train memory(GB) | train time (hr/epoch) |inference time(s/img) |box AP| mask AP |
 | :---------------|:--------|---|:-----|----|----|
-| PASCAL VOC 2007 |  |  | | | |
 | PASCAL VOC 2012 |  |  | | | |
 | COCO 2017       |  |  | | | |
 
