@@ -18,7 +18,7 @@
 ### 支持的PyTorch版本
 PyTorch 0.4还未支持, 低于0.3.1的版本不保证可用. 
 
-经过测试版本: torch == 0.3.1 torchvision == 0.2.0
+经过测试版本: python == 3.5.2, torch == 0.3.1, torchvision == 0.2.0
 
 ### 安装
 

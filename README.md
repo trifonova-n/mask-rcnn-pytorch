@@ -19,7 +19,8 @@ There is still some work to be done.
 ### Supported PyTorch version
 PyTorch 0.4 is not supported yet, versions below 0.3.1 are not guaranteed to work. 
 
-Tested version: torch == 0.3.1 torchvision == 0.2.0
+Tested version: python == 3.5.2, torch == 0.3.1, torchvision == 0.2.0
+
 
 ### Installation
 
