@@ -54,8 +54,8 @@ from maskrcnn import MaskRCNN
 mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 ``` 
  
-### 例子
-#### 1: 使用典型的PyTorch流程训练定制训练集.
+## 例子
+### 1: 使用典型的PyTorch流程训练定制训练集.
 1. 下载这个名为CST-Dataset的小数据集，只有25MB大小。
 
     下载链接: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
@@ -64,7 +64,7 @@ mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 
 3. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-#### 2: 训练COCO训练集.
+### 2: 训练COCO训练集.
 
 过段时间放出。
 

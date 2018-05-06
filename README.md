@@ -55,8 +55,8 @@ from maskrcnn import MaskRCNN
 mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 ``` 
  
-### Examples
-#### 1: Train Custom Dataset with PyTorch Typical Pipeline.
+## Examples
+### 1: Train Custom Dataset with PyTorch Typical Pipeline.
 1. Download the tiny (25MB) dataset  CST-Dataset
 
     Download link: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
@@ -65,7 +65,7 @@ mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 
 3. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-##### 2: Train COCO Dataset.
+### 2: Train COCO Dataset.
 
 release later
 
