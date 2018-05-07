@@ -5,10 +5,10 @@
 这个实现版本在一些非标准测试集上进行了验证，取得了不错效果，速度也较快，在标准数据集，如PASCAL VOC与COCO的结果很快会公布出来。
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
-还有一些工作待完成：
+还有一些工作正在进行当中：
 
 - [ ] 支持batch size >= 2.
-- [ ] 在COCO数据集上的训练代码样例，已经预训练权重.
+- [ ] 在COCO数据集上的训练代码样例，以及预训练权重.
 - [ ] 修复下使用FPN的问题
 - [ ] 用纯PyTorch代码替换第三方libs，如NMS与roi_align，torchvision对NMS的支持正在开发当中，需要等一下这个版本.
 - [ ] 支持PyTorch 0.4 还有令人激动的、很快就要发布的1.0版本.
@@ -18,7 +18,17 @@
 ### 支持的PyTorch版本
 PyTorch 0.4还未支持, 低于0.3.1的版本不保证可用. 
 
-经过测试版本: python == 3.5.2, torch == 0.3.1, torchvision == 0.2.0
+经过测试环境:
+
+Linux ubuntu 16.04
+
+CUDA == 8.0
+
+python == 3.5.2
+
+torch == 0.3.1
+
+torchvision == 0.2.0
 
 ### 安装
 
@@ -29,18 +39,10 @@ PyTorch 0.4还未支持, 低于0.3.1的版本不保证可用.
 
 `pip install cffi pillow easydict`
 
-#### 3. 安装第三方lib
-选择你的GPU架构，如sm_62适配Nvidia Titian XP，然后执行下面的命令：
+#### 3. 安装第三方libs
+选择你的CUDA版本，`cuda8` 或者 `cuda9`
 
-`python .\libs\build_libs.py sm_62`
-
-| architectures | capabilities  |  example GPU|
-| :------------- |:-------------| :-----|
-| sm_30, sm_32 | Basic features + Keplersupport +Unified memory programming |  |
-| sm_35	      | + Dynamic parallelism support |  |
-| sm_50, sm_52, sm_53 | + Maxwell support | M40 |
-| sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
-| sm_70 | + Volta support|V100|
+`python .\third_party\build_libs.py cuda8`
 
 ### 使用 MaskRCNN
 

@@ -7,7 +7,7 @@ some standard datasets like PASCAL VOC and COCO will release soon.
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
-There is still some work to be done.
+There is some works to be done.
 - [ ] support batch size >= 2.
 - [ ] COCO dataset training example and pre-trained weights.
 - [ ] fix performance problem using FPN. 
@@ -19,7 +19,17 @@ There is still some work to be done.
 ### Supported PyTorch version
 PyTorch 0.4 is not supported yet, versions below 0.3.1 are not guaranteed to work. 
 
-Tested version: python == 3.5.2, torch == 0.3.1, torchvision == 0.2.0
+Tested environment:
+
+Linux ubuntu 16.04
+
+CUDA == 8.0
+
+python == 3.5.2
+
+torch == 0.3.1
+
+torchvision == 0.2.0
 
 
 ### Installation
@@ -31,18 +41,10 @@ Tested version: python == 3.5.2, torch == 0.3.1, torchvision == 0.2.0
 
 `pip install cffi pillow easydict`
 
-#### 3. Install libs
-Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
+#### 3. Install third-party libs
+Choose your CUDA version, `cuda8` or `cuda9`
 
-`python .\libs\build_libs.py sm_62`
-
-| architectures | capabilities  |  example GPU|
-| :------------- |:-------------| :-----|
-| sm_30, sm_32 | Basic features + Keplersupport +Unified memory programming |  |
-| sm_35	      | + Dynamic parallelism support |  |
-| sm_50, sm_52, sm_53 | + Maxwell support | M40 |
-| sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
-| sm_70 | + Volta support|V100|
+`python .\third_party\build_libs.py cuda8`
 
 ### Using MaskRCNN
 

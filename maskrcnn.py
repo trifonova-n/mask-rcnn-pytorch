@@ -5,7 +5,7 @@ from heads.mask import MaskHead
 from tools.detect_utils import calc_iou, bbox_corner2center, bbox_center2corner
 from proposal.rpn import RPN
 from pooling.roi_align import RoiAlign
-from libs.nms.pth_nms import pth_nms as nms
+from third_party.nms.pth_nms import pth_nms as nms
 
 import os
 import random
@@ -153,7 +153,7 @@ class MaskRCNN(nn.Module):
         assert image.dim() == 4 and image.size(1) == 3
 
         if self.training or self.validating:
-            assert gt_classes.dim() == 2 
+            assert gt_classes.dim() == 2
             assert gt_bboxes.dim() == 3 and gt_bboxes.size(-1) == 4
             assert gt_masks.dim() == 4
 

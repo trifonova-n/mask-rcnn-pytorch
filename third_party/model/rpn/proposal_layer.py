@@ -18,7 +18,7 @@ import numpy as np
 from .config import cfg
 from .generate_anchors import generate_anchors
 from .bbox_transform import bbox_transform_inv, clip_boxes, clip_boxes_batch
-from libs.nms.pth_nms import pth_nms as nms
+from third_party.nms.pth_nms import pth_nms as nms
 
 DEBUG = False
 
