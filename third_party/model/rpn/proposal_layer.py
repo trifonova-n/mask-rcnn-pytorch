@@ -126,7 +126,7 @@ class _ProposalLayer(nn.Module):
         if not self.training:
             # filter out score below threshold
             assert batch_size == 1
-            scores_keep_idx = torch.nonzero(scores_keep > 0.5).view(-1)
+            scores_keep_idx = torch.nonzero(scores_keep > 0.05).view(-1)
             if scores_keep_idx.numel() != 0:
                 scores_keep = scores_keep[:, scores_keep_idx]
                 proposals_keep = proposals_keep[:, scores_keep_idx]

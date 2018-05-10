@@ -252,6 +252,7 @@ class MaskRCNN(nn.Module):
         pos_num = pos_index_prop.size(0)
         neg_num = neg_index_prop.size(0)
         sample_size_pos = min(sample_size_pos, pos_num)
+
         # keep the ratio of positive and negative rois, if there are not enough positives.
         sample_size_neg = int((sample_size_pos / rois_pos_fraction) * (1 - rois_pos_fraction) + 1)
         sample_size_neg = min(sample_size_neg, neg_num)
@@ -358,6 +359,41 @@ class MaskRCNN(nn.Module):
 
         return rois_pooling
 
+    def _bbox_nms(self, refined_props_nms):
+        """Non-maximum suppression on each class of refined proposals.
+        
+        Args:
+            refined_props_nms(Tensor): [N, M, (cls, x1, y1, x2, y2, cls_score)].
+
+        Returns:
+            keep_idx(LongTensor): keep index after NMS for final bounding box output.
+        """
+        assert refined_props_nms.size(0) == 1, "batch size >=2 is not supported yet."
+        refined_props_nms.squeeze_(0)
+
+        nms_thresh = float(self.config['TEST']['NMS_THRESH'])
+        props_indexed = {}  # indexed by class
+        # record position in input refined_props
+        for pos, prop in enumerate(refined_props_nms):
+            props_indexed.setdefault(prop[0], []).append((pos, prop[1:]))
+
+        keep_idx = []
+        for cls, pos_props in props_indexed.items():
+            pos = [i[0] for i in pos_props]
+            prop = [i[1].unsqueeze(0) for i in pos_props]
+            pos = refined_props_nms.new(pos).long()
+            prop = torch.cat(prop)
+            score = prop[:, 4]
+            order = torch.sort(score, dim=0, descending=True)[1]
+            pos_ordered = pos[order]
+            prop_ordered = prop[order]
+            keep_idx_per_cls = nms(prop_ordered, nms_thresh)
+            keep_idx.append(pos_ordered[keep_idx_per_cls])
+
+        keep_idx = torch.cat(keep_idx).long()
+
+        return keep_idx
+
     def _process_result(self, batch_size, features, proposals, cls_prob=None, bbox_reg=None):
         """Get the final result in test stage.
         Args:
@@ -392,14 +428,15 @@ class MaskRCNN(nn.Module):
                 pred_dict = {'proposal': proposals[i, 2:].cpu()}
                 obj_detected.append(pred_dict)
             result.append(obj_detected)
-            return result
 
+            return result
         else:
             props = []
             bboxes = []
+            cls_scores = []
             cls_ids = []
             for idx, roi in enumerate(proposals):
-                cls_id = torch.max(cls_prob[idx], dim=0)[1]
+                cls_score, cls_id = torch.max(cls_prob[idx], dim=0)
                 if int(cls_id) > 0:  # remove background
                     # refine proposal bbox with bbox regression result.
                     bbox = self._refine_proposal(roi[2:],
@@ -410,36 +447,31 @@ class MaskRCNN(nn.Module):
                         continue
                     props.append(roi.unsqueeze(0))
                     bboxes.append(bbox.unsqueeze(0))
-                    cls_ids.append(int(cls_id))
+                    # class score is in log space, turn it to range in 0~1
+                    cls_scores.append(torch.exp(cls_score.data))
+                    cls_ids.append(cls_id.data)
 
             if len(props) != 0:
+                cls_ids = torch.cat(cls_ids)
                 props_origin = torch.cat(props)
                 props_refined = props_origin.clone()
                 props_refined[:, 2:] = torch.cat(bboxes)
+
+                props_refined_nms = props_origin.new(len(cls_ids), 6)
+                props_refined_nms[:, 0] = cls_ids
+                props_refined_nms[:, 1:5] = torch.cat(bboxes)
+                props_refined_nms[:, 5] = torch.cat(cls_scores)
             else:
                 result.append([])
+
                 return result
 
-            # Apply nms.
-            if self.use_fpn:
-                pre_nms_top_n = int(self.config['FPN']['TEST_FPN_PRE_NMS_TOP_N'])
-                post_nms_top_n = int(self.config['FPN']['TEST_FPN_POST_NMS_TOP_N'])
-                nms_thresh = float(self.config['FPN']['TEST_FPN_NMS_THRESH'])
-            else:
-                pre_nms_top_n = int(self.config['RPN']['TEST_RPN_PRE_NMS_TOP_N'])
-                post_nms_top_n = int(self.config['RPN']['TEST_RPN_POST_NMS_TOP_N'])
-                nms_thresh = float(self.config['RPN']['TEST_RPN_NMS_THRESH'])
+            props_refined_nms = props_refined_nms.unsqueeze(0)  # dummy batch size == 1
+            keep_idx = self._bbox_nms(props_refined_nms)
+            cls_ids = cls_ids[keep_idx]
+            props_origin = props_origin[keep_idx]
+            props_refined = props_refined[keep_idx]
 
-            score = props_refined[:, 1]
-            order = torch.sort(score, dim=0, descending=True)[1]
-            props_origin = props_origin[order, :][:pre_nms_top_n, :]
-            props_refined = props_refined[order, :][:pre_nms_top_n, :]
-            score = props_refined[:, 1].unsqueeze(-1)
-            bbox = props_refined[:, 2:]
-            keep_idx = nms(torch.cat([bbox, score], 1), nms_thresh)
-            keep_idx = keep_idx[:post_nms_top_n]
-            props_origin = torch.cat([props_origin[idx, :].unsqueeze(0) for idx in keep_idx])
-            props_refined = torch.cat([props_refined[idx, :].unsqueeze(0) for idx in keep_idx])
             if self.use_fpn:
                 rois_pooling_mask = self._roi_align_fpn(features, props_refined.clone(),
                                                         mode='mask')
