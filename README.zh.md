@@ -1,4 +1,4 @@
-# Mask R-CNN 用PyTorch进行的实现 
+# Mask R-CNN PyTorch实现 
 
 阅读其他语言版本: [中文](./README.zh.md) [English](./README.md) 
 
