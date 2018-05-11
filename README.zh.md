@@ -62,9 +62,7 @@ mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 
     下载链接: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
 
-2. 将 `config.ini` 替换为 `examples/cst-dataset/config.ini`
-
-3. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
+2. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
 ### 2: 训练COCO训练集.
 

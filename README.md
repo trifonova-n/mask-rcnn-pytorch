@@ -64,9 +64,7 @@ mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 
     Download link: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
 
-2. replace `config.ini` with `examples/cst-dataset/config.ini`
-
-3. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
+2. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
 ### 2: Train COCO Dataset.
 
