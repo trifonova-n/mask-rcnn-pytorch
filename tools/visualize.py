@@ -335,7 +335,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     """
     # Number of boxes
     assert boxes is not None or refined_boxes is not None
-    N = boxes.shape[0] if boxes is not None else refined_boxes.shape[0]
+    N = np.shape(boxes)[0] if boxes is not None else np.shape(refined_boxes)[0]
 
     # Matplotlib Axis
     if not ax:
