@@ -2,7 +2,7 @@
 
 阅读其他语言版本: [中文](./README.zh.md) [English](./README.md) 
 
-这个实现版本在一些非标准测试集上进行了验证，取得了不错效果，速度也较快，在标准数据集，如PASCAL VOC与COCO的结果很快会公布出来。
+warning：这个实现在COCO数据集上只达到了了论文中的一半AP，正在调试中。
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 还有一些工作正在进行当中：

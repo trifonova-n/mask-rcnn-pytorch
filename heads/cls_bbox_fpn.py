@@ -4,15 +4,14 @@ import torch.nn as nn
 
 class ClsBBoxHead_fc(nn.Module):
     """Classification and bounding box regression head using fully-connected style.
-    
     """
 
     def __init__(self, depth, pool_size, num_classes):
         super(ClsBBoxHead_fc, self).__init__()
         self.depth = depth
         self.num_classes = num_classes
-        self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
-        self.fc_0 = nn.Linear(self.depth, 1024)
+        # self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
+        self.fc_0 = nn.Linear(self.depth * pool_size[0] * pool_size[1], 1024)
         self.fc_1 = nn.Linear(1024, 1024)
         self.relu = nn.ReLU(inplace=True)
         self.fc_cls = nn.Linear(1024, num_classes)
@@ -33,8 +32,9 @@ class ClsBBoxHead_fc(nn.Module):
         Notes: In above, S: number of rois per image feed to predict heads
             
         """
-        x = self.avg_pool(x)
-        x = x.view(-1, self.depth)
+        # x = self.avg_pool(x)
+        # x = x.view(-1, self.depth)
+        x = x.view(x.size(0), -1)
         x = self.fc_0(x)
         x = self.relu(x)
         x = self.fc_1(x)
@@ -44,12 +44,12 @@ class ClsBBoxHead_fc(nn.Module):
         cls_prob = self.log_softmax(fc_out_cls)
         bbox_reg = self.fc_bbox(x)
         bbox_reg = bbox_reg.view(-1, self.num_classes, 4)
+
         return cls_prob, bbox_reg
 
 
 class ClsBBoxHead_conv(nn.Module):
     """Classification and bounding box regression head using Conv style.
-
     """
 
     def __init__(self, depth, pool_size, num_classes):
@@ -92,7 +92,7 @@ class ClsBBoxHead_conv(nn.Module):
         x = self.bn2(x)
         x = self.relu(x)
 
-        x = x.view(-1, self.depth)
+        x = x.view(-1, 1024)
         fc_out_cls = self.fc_cls(x)
         cls_prob = self.log_softmax(fc_out_cls)
         bbox_reg = self.fc_bbox(x)

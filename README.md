@@ -2,8 +2,7 @@
 
 Read this in other languages: [English](./README.md) [中文](./README.zh.md) 
 
-This implementation is verified with some custom datasets, achieved good speed and result, quantitative results on
-some standard datasets like PASCAL VOC and COCO will release soon.
+warning: This implementation only achieved half AP of origin paper on COCO dataset, is under debugging.
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
