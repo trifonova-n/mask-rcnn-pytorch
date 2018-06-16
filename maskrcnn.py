@@ -1,6 +1,8 @@
 from backbones.resnet_fpn import ResNetFPN
 from backbones.resnet import ResNet
-from heads.cls_bbox import ClsBBoxHead_fc as ClsBBoxHead
+from backbones.vgg16 import VGG16
+from heads.common import HeadCommon
+from heads.cls_bbox import ClsBBoxHead
 from heads.mask import MaskHead
 from tools.detect_utils import calc_iou, bbox_corner2center, bbox_center2corner
 from proposal.rpn import RPN
@@ -41,33 +43,51 @@ class MaskRCNN(nn.Module):
             assert pretrained in ['imagenet', 'coco']
             assert pretrained not in ['coco'], "COCO pretrained weights is not available yet."
         self.config = ConfigParser()
-        self.config.read(os.path.abspath(os.path.join(__file__, "../", "config.ini")))
+        config_path = os.path.abspath(os.path.join(__file__, "../", "config.ini"))
+        assert os.path.exists(config_path), "config.ini not exists!"
+        self.config.read(config_path)
         self.num_classes = num_classes
-        self.pooling_size_clsbbox = (7, 7)
-        self.pooling_size_mask = (14, 14)
-        self.validating = False  # when True output loss and predict results.
+        self.validating = False  # when validating output loss and predict results.
         self.fpn_on = bool(int(self.config['BACKBONE']['FPN_ON']))
         self.mask_head_on = bool(int(self.config['HEAD']['MASK_HEAD_ON']))
         self.train_rpn_only = bool(int(self.config['TRAIN']['TRAIN_RPN_ONLY']))
+
         resnet_layer = int(self.config['BACKBONE']['RESNET_LAYER'])
+        pooling_size_clsbbox = int(self.config['POOLING']['POOLING_SIZE_CLSBBOX'])
+        pooling_size_mask = int(self.config['POOLING']['POOLING_SIZE_MASK'])
+
         if self.fpn_on:
             self.backbone_fpn = ResNetFPN(resnet_layer, pretrained=pretrained)
-            self.depth = 256
+            self.depth_for_rpn = 256
+            self.depth_for_head = 2048
         else:
-            self.backbone = ResNet(resnet_layer, pretrained=pretrained)
-            self.depth = 1024
+            backbone_type = self.config['BACKBONE']['BACKBONE_TYPE']
+            assert backbone_type in ['resnet', 'vgg16']
+            if backbone_type == 'resnet':
+                self.backbone = ResNet(resnet_layer, pretrained=pretrained)
+                self.depth_rpn = 1024
+                self.depth_head = 2048
+            elif backbone_type == 'vgg16':
+                self.backbone = VGG16(pretrained=pretrained)
+                self.depth_rpn = 512
+                self.depth_head = 4096
 
-        self.rpn = RPN(self.depth, self.fpn_on)
+        self.rpn = RPN(self.depth_rpn, self.fpn_on)
+        self.head_common = HeadCommon(pretrained=pretrained)
 
         if not self.train_rpn_only:
-            # RoiAlign for cls and bbox head, pooling size 7x7
-            self.roi_align_clsbbox = RoiAlign(grid_size=self.pooling_size_clsbbox)
-            # RoiAlign for mask head, pooling size 14x14
-            self.roi_align_mask = RoiAlign(grid_size=self.pooling_size_mask)
-            self.clsbbox_head = ClsBBoxHead(depth=self.depth, pool_size=self.pooling_size_clsbbox,
+            # RoiAlign for cls and bbox head
+            self.roi_align_clsbbox = RoiAlign(grid_size=(pooling_size_clsbbox,
+                                                         pooling_size_clsbbox))
+            self.clsbbox_head = ClsBBoxHead(depth=self.depth_head,
                                             num_classes=num_classes)
             if self.mask_head_on:
-                self.mask_head = MaskHead(depth=self.depth, pool_size=self.pooling_size_mask,
+                # RoiAlign for mask head
+                self.roi_align_mask = RoiAlign(grid_size=(pooling_size_mask,
+                                                          pooling_size_mask))
+                self.mask_head = MaskHead(depth=self.depth_head,
+                                          pool_size=(pooling_size_mask,
+                                                     pooling_size_mask),
                                           num_classes=num_classes)
         self.img_height = None
         self.img_width = None
@@ -125,9 +145,12 @@ class MaskRCNN(nn.Module):
             head_features = [feature_map]
 
         rois, rpn_loss_cls, rpn_loss_bbox = self.rpn(rpn_features, gt_bboxes, img_shape)
+
         if self.train_rpn_only:  # only train RPN.
-            result = self._process_result(head_features, rois)
             rpn_loss = rpn_loss_cls + rpn_loss_bbox
+
+            if not self.training:
+                result = self._process_result(head_features, rois)
 
             return result, rpn_loss
         else:  # train RPN + Predict heads together.
@@ -137,7 +160,9 @@ class MaskRCNN(nn.Module):
                 rois_head = rois_sampled.view(-1, 6)  # [N, M, 6] -> [(NxM), 6]
                 rois_clsbbox, rois_mask = rois_head.clone(), rois_head.clone()
                 cls_prob, bbox_reg = self._run_clsbbox_head(head_features, rois_clsbbox)
-                mask_prob = self._run_mask_head(head_features, rois_mask)
+                mask_prob = None
+                if self.mask_head_on:
+                    mask_prob = self._run_mask_head(head_features, rois_mask)
                 head_loss = MaskRCNN._calc_head_loss(cls_prob, bbox_reg, mask_prob,
                                                      cls_targets, bbox_targets, mask_targets)
                 maskrcnn_loss = rpn_loss_cls + rpn_loss_bbox + head_loss
@@ -154,10 +179,8 @@ class MaskRCNN(nn.Module):
         """check model input. 
         """
         assert image.dim() == 4 and image.size(1) == 3
-
         if self.training or self.validating:
-            assert gt_classes.dim() == 2
-            assert gt_bboxes.dim() == 3 and gt_bboxes.size(-1) == 4
+            assert gt_classes.dim() == 2 and gt_bboxes.dim() == 3 and gt_bboxes.size(-1) == 4
             if self.mask_head_on:
                 assert gt_masks.dim() == 4
 
@@ -178,6 +201,7 @@ class MaskRCNN(nn.Module):
             mask_prob = self.mask_head(rois_pooling).data
         else:
             rois_pooling = self.roi_align_mask(features[0], rois, self.img_height)
+            rois_pooling = self.head_common(rois_pooling, is_mask=True)
             mask_prob = self.mask_head(rois_pooling)
 
         return mask_prob
@@ -200,11 +224,12 @@ class MaskRCNN(nn.Module):
             cls_prob, bbox_reg = self.clsbbox_head(rois_pooling)
         else:
             rois_pooling = self.roi_align_clsbbox(features[0], rois, self.img_height)
+            rois_pooling = self.head_common(rois_pooling)
             cls_prob, bbox_reg = self.clsbbox_head(rois_pooling)
 
         return cls_prob, bbox_reg
 
-    def _generate_targets(self, proposals, gt_classes, gt_bboxes, gt_masks, mask_size=(28, 28)):
+    def _generate_targets(self, proposals, gt_classes, gt_bboxes, gt_masks, mask_size=(14, 14)):
         """Generate Mask R-CNN targets, and corresponding rois.
 
         Args:
@@ -241,42 +266,42 @@ class MaskRCNN(nn.Module):
         gt_bboxes = gt_bboxes.squeeze(0)
         gt_masks = gt_masks.squeeze(0)
 
-        iou = calc_iou(proposals[:, 2:], gt_bboxes[:, :])
+        iou = calc_iou(proposals[:, 2:], gt_bboxes)
         max_iou, max_iou_idx_gt = torch.max(iou, dim=1)
+
+        # add gt_bboxes as training proposals
+        gt_max_iou = max_iou.new([1 for _ in range(gt_bboxes.size(0))])
+        max_iou_idx_gt_add = max_iou_idx_gt.new([i for i in range(gt_bboxes.size(0))])
+        gt_proposals = proposals.new(gt_bboxes.size(0), 6).zero_()
+        gt_proposals[:, 0] = 0
+        gt_proposals[:, 1] = 1
+        gt_proposals[:, 2:] = gt_bboxes
+
+        max_iou = torch.cat([max_iou, gt_max_iou])
+        max_iou_idx_gt = torch.cat([max_iou_idx_gt, max_iou_idx_gt_add])
+        proposals = torch.cat([proposals, gt_proposals])
+
         pos_index_prop = torch.nonzero(max_iou >= rois_pos_thresh).view(-1)
         neg_index_prop = torch.nonzero(max_iou < rois_neg_thresh).view(-1)
 
-        if pos_index_prop.numel() == 0:  # no positive roi.
-            neg_num = neg_index_prop.size(0)
-            sample_size_neg = min(rois_sample_size, neg_num)
-            sample_index_neg = random.sample(range(neg_num), sample_size_neg)
-            neg_index_sampled_prop = neg_index_prop[sample_index_neg]
-            sampled_rois = proposals[neg_index_sampled_prop, :]
-            sampled_rois = sampled_rois.view(batch_size, -1, 6)
-            cls_targets = gt_classes.new([0 for _ in range(sample_size_neg)])
-
-            return sampled_rois, Variable(cls_targets), None, None
-
-        pos_index_gt = max_iou_idx_gt[pos_index_prop]
-        sample_size_pos = int(rois_pos_fraction * rois_sample_size)
-
         pos_num = pos_index_prop.size(0)
         neg_num = neg_index_prop.size(0)
-        sample_size_pos = min(sample_size_pos, pos_num)
 
-        # keep the ratio of positive and negative rois, if there are not enough positives.
-        sample_size_neg = int((sample_size_pos / rois_pos_fraction) * (1 - rois_pos_fraction) + 1)
+        sample_size_pos = int(rois_pos_fraction * rois_sample_size)
+        sample_size_pos = min(sample_size_pos, pos_num)
+        sample_size_neg = int(rois_sample_size - sample_size_pos)
         sample_size_neg = min(sample_size_neg, neg_num)
 
-        sample_index_pos = random.sample(range(pos_num), sample_size_pos)
-        sample_index_neg = random.sample(range(neg_num), sample_size_neg)
+        pos_sample_index = random.sample(range(pos_num), sample_size_pos)
+        neg_sample_index = random.sample(range(neg_num), sample_size_neg)
 
-        pos_index_sampled_prop = pos_index_prop[sample_index_pos]
-        neg_index_sampled_prop = neg_index_prop[sample_index_neg]
-        pos_index_sampled_gt = pos_index_gt[sample_index_pos]
+        pos_index_prop_sampled = pos_index_prop[pos_sample_index]
+        neg_index_prop_sampled = neg_index_prop[neg_sample_index]
 
-        index_proposal = torch.cat([pos_index_sampled_prop, neg_index_sampled_prop])
-        sampled_rois = proposals[index_proposal, :]
+        pos_index_sampled_gt = max_iou_idx_gt[pos_index_prop_sampled]
+
+        index_proposal = torch.cat([pos_index_prop_sampled, neg_index_prop_sampled])
+        sampled_rois = proposals[index_proposal]
         sampled_rois = sampled_rois.view(batch_size, -1, 6)
 
         # targets for classification, positive rois use gt_class id, negative use 0 as background.
@@ -286,20 +311,43 @@ class MaskRCNN(nn.Module):
         cls_targets = Variable(cls_targets)
 
         # bbox regression target define on define on positive proposals.
-        bboxes = proposals[:, 2:]
-        bbox_targets = MaskRCNN._get_bbox_targets(bboxes[pos_index_sampled_prop, :],
-                                                  gt_bboxes[pos_index_sampled_gt, :])
+        bbox_targets = MaskRCNN._get_bbox_targets(proposals[pos_index_prop_sampled][:, 2:],
+                                                  gt_bboxes[pos_index_sampled_gt])
         bbox_targets = Variable(bbox_targets)
 
         mask_targets = None
         if self.mask_head_on:
             # mask targets define on positive proposals.
-            mask_targets = MaskRCNN._get_mask_targets(bboxes[pos_index_sampled_prop, :],
-                                                      gt_masks[pos_index_sampled_gt, :, :],
+            mask_targets = MaskRCNN._get_mask_targets(proposals[pos_index_prop_sampled][:, 2:],
+                                                      gt_masks[pos_index_sampled_gt],
                                                       mask_size)
             mask_targets = Variable(mask_targets)
 
         return sampled_rois, cls_targets, bbox_targets, mask_targets
+
+    def filter_bad_roi(self, rois):
+        assert rois.size(0) == 1, "batch size should be 1"
+        rois = rois.squeeze(0)
+        # filter out invalid proposals
+        valid_idx = []
+        for idx, roi in enumerate(rois):
+            if self._is_roi_valid(roi):
+                valid_idx.append(idx)
+        if len(valid_idx) != 0:
+            rois = rois[valid_idx]
+        else:
+            raise RuntimeError("should have at least one valid rois!")
+        rois.unsqueeze_(0)
+
+        return rois
+
+    def _is_roi_valid(self, roi):
+        train_rpn_min_size = int(self.config['RPN']['TRAIN_RPN_MIN_SIZE'])
+        idx, score, x1, y1, x2, y2 = roi
+        if score == 0 or (x2 - x1) < train_rpn_min_size or (y2 - y1) < train_rpn_min_size:
+            return False
+        else:
+            return True
 
     def _refine_proposal(self, proposal, bbox_reg):
         """Refine proposal bbox with the result of bbox regression.
@@ -311,6 +359,7 @@ class MaskRCNN(nn.Module):
         Returns:
             bbox_refined(Tensor): (x1, y1, x2, y2)
         """
+        assert proposal.size(0) == bbox_reg.size(0)
 
         x, y, w, h = bbox_corner2center(proposal).chunk(4)
         dx, dy, dw, dh = bbox_reg.chunk(4)
@@ -400,12 +449,8 @@ class MaskRCNN(nn.Module):
             prop = [i[1].unsqueeze(0) for i in pos_props]
             pos = refined_props_nms.new(pos).long()
             prop = torch.cat(prop)
-            score = prop[:, 4]
-            order = torch.sort(score, dim=0, descending=True)[1]
-            pos_ordered = pos[order]
-            prop_ordered = prop[order]
-            keep_idx_per_cls = nms(prop_ordered, nms_thresh)
-            keep_idx.append(pos_ordered[keep_idx_per_cls])
+            keep_idx_per_cls = nms(prop, nms_thresh)
+            keep_idx.append(pos[keep_idx_per_cls])
 
         keep_idx = torch.cat(keep_idx).long()
 
@@ -449,63 +494,62 @@ class MaskRCNN(nn.Module):
             result.append(obj_detected)
 
             return result
+
+        props = []
+        bboxes = []
+        cls_scores = []
+        cls_ids = []
+        for idx, roi in enumerate(proposals):
+            cls_score, cls_id = torch.max(cls_prob[idx], dim=0)
+            if int(cls_id) > 0:
+                # refine proposal bbox with bbox regression result.
+                bbox = self._refine_proposal(roi[2:], bbox_reg[idx][cls_id].squeeze(0).data)
+                px1, py1, px2, py2 = bbox.int()
+                if py1 >= py2 or px1 >= px2:
+                    continue
+                props.append(roi.unsqueeze(0))
+                bboxes.append(bbox.unsqueeze(0))
+                # class score is in log space, turn it to range in 0~1
+                cls_scores.append(torch.exp(cls_score.data))
+                cls_ids.append(cls_id.data)
+
+        if len(props) != 0:
+            cls_ids = torch.cat(cls_ids)
+            cls_scores = torch.cat(cls_scores)
+            props_origin = torch.cat(props)
+            props_refined = props_origin.clone()
+            props_refined[:, 2:] = torch.cat(bboxes)
+
+            props_refined_nms = props_refined.new(len(cls_ids), 6)
+            props_refined_nms[:, 0] = cls_ids
+            props_refined_nms[:, 1:5] = torch.cat(bboxes)
+            props_refined_nms[:, 5] = cls_scores
         else:
-            props = []
-            bboxes = []
-            cls_scores = []
-            cls_ids = []
-            for idx, roi in enumerate(proposals):
-                cls_score, cls_id = torch.max(cls_prob[idx], dim=0)
-                if int(cls_id) > 0:  # remove background
-                    # refine proposal bbox with bbox regression result.
-                    bbox = self._refine_proposal(roi[2:],
-                                                 bbox_reg[idx, :, :][cls_id, :].squeeze(0).data)
-                    px1, py1, px2, py2 = bbox
-                    # leave malformed bbox alone
-                    if py1 >= py2 or px1 >= px2:
-                        continue
-                    props.append(roi.unsqueeze(0))
-                    bboxes.append(bbox.unsqueeze(0))
-                    # class score is in log space, turn it to range in 0~1
-                    cls_scores.append(torch.exp(cls_score.data))
-                    cls_ids.append(cls_id.data)
+            result.append([])
 
-            if len(props) != 0:
-                cls_ids = torch.cat(cls_ids)
-                cls_scores = torch.cat(cls_scores)
-                props_origin = torch.cat(props)
-                props_refined = props_origin.clone()
-                props_refined[:, 2:] = torch.cat(bboxes)
+            return result
 
-                props_refined_nms = props_origin.new(len(cls_ids), 6)
-                props_refined_nms[:, 0] = cls_ids
-                props_refined_nms[:, 1:5] = torch.cat(bboxes)
-                props_refined_nms[:, 5] = cls_scores
-            else:
-                result.append([])
+        props_refined_nms = props_refined_nms.unsqueeze(0)  # dummy batch size == 1
+        keep_idx = self._bbox_nms(props_refined_nms)
+        cls_ids = cls_ids[keep_idx]
+        cls_scores = cls_scores[keep_idx]
+        props_origin = props_origin[keep_idx]
+        props_refined = props_refined[keep_idx]
 
-                return result
-
-            props_refined_nms = props_refined_nms.unsqueeze(0)  # dummy batch size == 1
-            keep_idx = self._bbox_nms(props_refined_nms)
-            cls_ids = cls_ids[keep_idx]
-            cls_scores = cls_scores[keep_idx]
-            props_origin = props_origin[keep_idx]
-            props_refined = props_refined[keep_idx]
-
+        if self.mask_head_on:
             # running mask head in testing stage using refined bbox.
             mask_prob = self._run_mask_head(features, props_refined.clone())
             mask_prob = mask_prob.data
 
-            obj_detected = []
-            for i in range(len(props_origin)):
-                pred_dict = {'proposal': props_origin[i, 2:].cpu(), 'cls_pred': cls_ids[i],
-                             'bbox_pred': props_refined[i, 2:].cpu(), 'mask_pred': None,
-                             'score': cls_scores[i]}
-
+        obj_detected = []
+        for i in range(len(props_refined)):
+            pred_dict = {'proposal': props_origin[i, 2:].cpu(), 'cls_pred': cls_ids[i],
+                         'bbox_pred': props_refined[i, 2:].cpu(), 'mask_pred': None,
+                         'score': cls_scores[i]}
+            if self.mask_head_on:
                 px1, py1, px2, py2 = props_refined[i, 2:].int()
                 mask_height, mask_width = py2 - py1, px2 - px1
-                mask = mask_prob[i, :, :, :][cls_ids[i], :, :]
+                mask = mask_prob[i][cls_ids[i]]
                 mask = Variable(mask.unsqueeze(0), requires_grad=False)
                 mask_resize = F.adaptive_avg_pool2d(mask, (mask_height, mask_width)).data
                 mask_threshold = float(self.config['TEST']['MASK_THRESH'])
@@ -513,10 +557,10 @@ class MaskRCNN(nn.Module):
                 mask_pred = mask_prob.new(self.img_height, self.img_width).zero_()
                 mask_pred[py1:py2, px1:px2] = mask_resize
                 pred_dict['mask_pred'] = mask_pred.cpu()
-                obj_detected.append(pred_dict)
-            result.append(obj_detected)
+            obj_detected.append(pred_dict)
+        result.append(obj_detected)
 
-            return result
+        return result
 
     @staticmethod
     def _get_bbox_targets(proposals, gt_bboxes):
@@ -530,6 +574,8 @@ class MaskRCNN(nn.Module):
         Returns:
             bbox_targets(Tensor): [n, 4]
         """
+        assert proposals.size(0) == gt_bboxes.size(0)
+
         proposals = bbox_corner2center(proposals)
         gt_bboxes = bbox_corner2center(gt_bboxes)
         xy = (gt_bboxes[:, :2] - proposals[:, :2]) / proposals[:, 2:]
@@ -589,20 +635,19 @@ class MaskRCNN(nn.Module):
         Notes: In above, S: number of sampled rois feed to prediction heads.
     
         """
-        # calculate classification head loss.
         cls_loss = F.nll_loss(cls_prob, cls_targets)
 
         # calculate bbox regression and mask head loss.
         bbox_loss, mask_loss = 0, 0
-        if bbox_targets is not None:  # can be None if there are no positive rois.
-            num_foreground = bbox_targets.size(0)
-            for i in range(num_foreground):
-                cls_id = int(cls_targets[i])
-                # Only corresponding class prediction contribute to bbox and mask loss.
-                bbox_loss += F.smooth_l1_loss(bbox_reg[i, cls_id, :], bbox_targets[i, :])
-                if mask_targets is not None:  # can be None if mask head is set off.
-                    mask_loss += F.binary_cross_entropy(mask_prob[i, cls_id, :, :],
-                                                        mask_targets[i, :, :])
+        num_foreground = bbox_targets.size(0)
+        for i in range(num_foreground):
+            cls_id = int(cls_targets[i])
+            assert cls_id != 0
+            # Only corresponding class prediction contribute to bbox and mask loss.
+            bbox_loss += F.smooth_l1_loss(bbox_reg[i, cls_id, :], bbox_targets[i, :])
+            if mask_targets is not None:  # can be None if mask head is set off.
+                mask_loss += F.binary_cross_entropy(mask_prob[i, cls_id, :, :],
+                                                    mask_targets[i, :, :])
             bbox_loss /= num_foreground
             mask_loss /= num_foreground
 

@@ -1,4 +1,7 @@
-import torch
+"""
+Cls and bbox head for FPN feature maps.
+"""
+
 import torch.nn as nn
 
 
@@ -10,7 +13,6 @@ class ClsBBoxHead_fc(nn.Module):
         super(ClsBBoxHead_fc, self).__init__()
         self.depth = depth
         self.num_classes = num_classes
-        # self.avg_pool = nn.AvgPool2d(kernel_size=pool_size)
         self.fc_0 = nn.Linear(self.depth * pool_size[0] * pool_size[1], 1024)
         self.fc_1 = nn.Linear(1024, 1024)
         self.relu = nn.ReLU(inplace=True)
@@ -32,8 +34,6 @@ class ClsBBoxHead_fc(nn.Module):
         Notes: In above, S: number of rois per image feed to predict heads
             
         """
-        # x = self.avg_pool(x)
-        # x = x.view(-1, self.depth)
         x = x.view(x.size(0), -1)
         x = self.fc_0(x)
         x = self.relu(x)

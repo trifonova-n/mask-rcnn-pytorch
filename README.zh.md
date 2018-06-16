@@ -2,14 +2,14 @@
 
 阅读其他语言版本: [中文](./README.zh.md) [English](./README.md) 
 
-warning：这个实现在COCO数据集上只达到了了论文中的一半AP，正在调试中。
+**注意**：这个实现在COCO数据集上只达到了了论文中的一半AP，正在调试中。
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 还有一些工作正在进行当中：
 
+- [ ] 调试代码，在COCO训练集上取得与MaskRCNN论文中差不多的mAP值，目前只有一半
 - [ ] 支持batch size >= 2.
 - [ ] 在COCO数据集上的训练代码样例，以及预训练权重.
-- [ ] 修复下使用FPN的问题
 - [ ] 用纯PyTorch代码替换第三方libs，如NMS与roi_align，torchvision对NMS的支持正在开发当中，需要等一下这个版本.
 - [ ] 支持PyTorch 0.4 还有令人激动的、很快就要发布的1.0版本.
 

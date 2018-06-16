@@ -20,7 +20,9 @@ class RPN(nn.Module):
         """
         super(RPN, self).__init__()
         self.config = ConfigParser()
-        self.config.read(os.path.abspath(os.path.join(__file__, "../../", 'config.ini')))
+        config_path = os.path.abspath(os.path.join(__file__, "../../", "config.ini"))
+        assert os.path.exists(config_path), "config.ini not exists!"
+        self.config.read(config_path)
         self.rpn = _RPN(dim)
         self.use_fpn = use_fpn
 
@@ -114,4 +116,5 @@ class RPN(nn.Module):
         else:
             rpn_result = self.rpn(feature_maps[0], img_shape, gt_bboxes, None)
             rois, rpn_loss_cls, rpn_loss_bbox = rpn_result
+
         return rois, rpn_loss_cls, rpn_loss_bbox

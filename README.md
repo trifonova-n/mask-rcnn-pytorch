@@ -2,14 +2,16 @@
 
 Read this in other languages: [English](./README.md) [中文](./README.zh.md) 
 
-warning: This implementation only achieved half AP of origin paper on COCO dataset, is under debugging.
+**warning**: This implementation only achieved half AP of origin paper on COCO dataset, is under 
+debugging.
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
 There is some works to be done.
+- [ ] debug to achieve around the same mAP on COCO dataset reported by origin Mask RCNN paper,
+ right now only about half of it.
 - [ ] support batch size >= 2.
 - [ ] COCO dataset training example and pre-trained weights.
-- [ ] fix performance problem using FPN. 
 - [ ] replace third-party libs NMS and roi_align with pure PyTorch, NMS in torchvision is under developing, need to wait the version coming out.
 - [ ] keep up with PyTorch version 0.4 and the exciting version 1.0 that is about to be released.
 
