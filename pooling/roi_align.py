@@ -1,6 +1,6 @@
 import torch.nn as nn
 from torch.autograd import Variable
-from libs.roi_align.roi_align import RoIAlign as _RoiAlign
+from third_party.roi_align.roi_align import RoIAlign as _RoiAlign
 
 
 class RoiAlign(nn.Module):

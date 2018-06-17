@@ -1,17 +1,34 @@
-# Mask R-CNN 用PyTorch进行的实现 
+# Mask R-CNN PyTorch实现 
 
 阅读其他语言版本: [中文](./README.zh.md) [English](./README.md) 
 
-这个实现版本在一些非标准测试集上进行了验证，取得了不错效果，速度也较快，在标准数据集，如PASCAL VOC与COCO的结果很快会公布出来。
+**注意**：这个实现在COCO数据集上只达到了了论文中的一半AP，正在调试中。
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
-还有一些工作待完成：
-- [ ] ImageNet预训练权重已经可用，COCO的预训练权重过段时间会放出来。
-- [ ] 支持batch size >= 2
-- [ ] 更完善的文档与例子
-- [ ] 将第三方lib，如nms与roi_align，替换为纯PyTorch的实现，不过要等支持nms的PyTorch下一个版本，这个版本应该很快将会推出。
+还有一些工作正在进行当中：
+
+- [ ] 调试代码，在COCO训练集上取得与MaskRCNN论文中差不多的mAP值，目前只有一半
+- [ ] 支持batch size >= 2.
+- [ ] 在COCO数据集上的训练代码样例，以及预训练权重.
+- [ ] 用纯PyTorch代码替换第三方libs，如NMS与roi_align，torchvision对NMS的支持正在开发当中，需要等一下这个版本.
+- [ ] 支持PyTorch 0.4 还有令人激动的、很快就要发布的1.0版本.
 
 ## 使用用法
+
+### 支持的PyTorch版本
+PyTorch 0.4还未支持, 低于0.3.1的版本不保证可用. 
+
+经过测试环境:
+
+Linux ubuntu 16.04
+
+CUDA == 8.0
+
+python == 3.5.2
+
+torch == 0.3.1
+
+torchvision == 0.2.0
 
 ### 安装
 
@@ -22,18 +39,10 @@
 
 `pip install cffi pillow easydict`
 
-#### 3. 安装第三方lib
-选择你的GPU架构，如sm_62适配Nvidia Titian XP，然后执行下面的命令：
+#### 3. 安装第三方libs
+选择你的CUDA版本，`cuda8` 或者 `cuda9`
 
-`python .\libs\build_libs.py sm_62`
-
-| architectures | capabilities  |  example GPU|
-| :------------- |:-------------| :-----|
-| sm_30, sm_32 | Basic features + Keplersupport +Unified memory programming |  |
-| sm_35	      | + Dynamic parallelism support |  |
-| sm_50, sm_52, sm_53 | + Maxwell support | M40 |
-| sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
-| sm_70 | + Volta support|V100|
+`python .\third_party\build_libs.py cuda8`
 
 ### 使用 MaskRCNN
 
@@ -44,22 +53,18 @@ import sys
 # 将此工程的根目录加入到PATH
 sys.path.append("/ANY_DIR_YOU_CLONE_AT/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
-
-# 使用预训练权重: 
-# 1) "imagenet", backbone将会使用在ImageNet上训练的权重.
-mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
+mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 ``` 
  
-#### 例子1: 使用典型的PyTorch流程训练定制训练集.
+## 例子
+### 1: 使用典型的PyTorch流程训练定制训练集.
 1. 下载这个名为CST-Dataset的小数据集，只有25MB大小。
 
     下载链接: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
 
-2. 将 `config.ini` 替换为 `examples/cst-dataset/config.ini`
+2. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-3. 查看 Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
-
-#### 例子2: 训练COCO训练集.
+### 2: 训练COCO训练集.
 
 过段时间放出。
 
@@ -68,7 +73,6 @@ mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
 
 | dataset | train memory(GB) | train time (hr/epoch) |inference time(s/img) |box AP| mask AP |
 | :---------------|:--------|---|:-----|----|----|
-| PASCAL VOC 2007 |  |  | | | |
 | PASCAL VOC 2012 |  |  | | | |
 | COCO 2017       |  |  | | | |
 

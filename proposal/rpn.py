@@ -1,10 +1,10 @@
 import os
 import torch
 import torch.nn as nn
-from libs.model.rpn.rpn import _RPN
-from libs.model.rpn.anchor_target_layer import _AnchorTargetLayer
-from libs.model.rpn.proposal_layer import _ProposalLayer
-from libs.nms.pth_nms import pth_nms as nms
+from third_party.model.rpn.rpn import _RPN
+from third_party.model.rpn.anchor_target_layer import _AnchorTargetLayer
+from third_party.model.rpn.proposal_layer import _ProposalLayer
+from third_party.nms.pth_nms import pth_nms as nms
 from configparser import ConfigParser
 
 
@@ -20,7 +20,9 @@ class RPN(nn.Module):
         """
         super(RPN, self).__init__()
         self.config = ConfigParser()
-        self.config.read(os.path.abspath(os.path.join(__file__, "../../", 'config.ini')))
+        config_path = os.path.abspath(os.path.join(__file__, "../../", "config.ini"))
+        assert os.path.exists(config_path), "config.ini not exists!"
+        self.config.read(config_path)
         self.rpn = _RPN(dim)
         self.use_fpn = use_fpn
 
@@ -36,7 +38,7 @@ class RPN(nn.Module):
             self.anchor_ratios = [float(i) for i in self.config['RPN']['ANCHOR_RATIOS'].split()]
 
             ################################################
-            # monkey patches adapt libs/RPN to support FPN.
+            # monkey patches adapt third_party/RPN to support FPN.
             ################################################
 
             # define the convrelu layers processing input feature map
@@ -114,4 +116,5 @@ class RPN(nn.Module):
         else:
             rpn_result = self.rpn(feature_maps[0], img_shape, gt_bboxes, None)
             rois, rpn_loss_cls, rpn_loss_bbox = rpn_result
+
         return rois, rpn_loss_cls, rpn_loss_bbox

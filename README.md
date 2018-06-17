@@ -2,20 +2,36 @@
 
 Read this in other languages: [English](./README.md) [中文](./README.zh.md) 
 
-This implementation is verified with some custom datasets, achieved good speed and result, quantitative results on
-some standard datasets like PASCAL VOC and COCO will release soon.
+**warning**: This implementation only achieved half AP of origin paper on COCO dataset, is under 
+debugging.
 
 ![maskrcnn-result](http://chuantu.biz/t6/250/1520606201x-1404795469.png)
 
-There is still some work to be done.
-- [ ] ImageNet pretrained weights of backbone is ok, works need on COCO pretrained weights of the
-whole model 
+There is some works to be done.
+- [ ] debug to achieve around the same mAP on COCO dataset reported by origin Mask RCNN paper,
+ right now only about half of it.
 - [ ] support batch size >= 2.
-- [ ] refined documentation and examples
-- [ ] replace third party libs nms and roi_align with pure PyTorch, but need wait NMS natively 
-supported version of PyTorch, which is coming soon.  
+- [ ] COCO dataset training example and pre-trained weights.
+- [ ] replace third-party libs NMS and roi_align with pure PyTorch, NMS in torchvision is under developing, need to wait the version coming out.
+- [ ] keep up with PyTorch version 0.4 and the exciting version 1.0 that is about to be released.
 
 ## Usage
+
+### Supported PyTorch version
+PyTorch 0.4 is not supported yet, versions below 0.3.1 are not guaranteed to work. 
+
+Tested environment:
+
+Linux ubuntu 16.04
+
+CUDA == 8.0
+
+python == 3.5.2
+
+torch == 0.3.1
+
+torchvision == 0.2.0
+
 
 ### Installation
 
@@ -26,18 +42,10 @@ supported version of PyTorch, which is coming soon.
 
 `pip install cffi pillow easydict`
 
-#### 3. Install libs
-Choose your GPU architecture, e.g. sm_62 for Titan XP , then run
+#### 3. Install third-party libs
+Choose your CUDA version, `cuda8` or `cuda9`
 
-`python .\libs\build_libs.py sm_62`
-
-| architectures | capabilities  |  example GPU|
-| :------------- |:-------------| :-----|
-| sm_30, sm_32 | Basic features + Keplersupport +Unified memory programming |  |
-| sm_35	      | + Dynamic parallelism support |  |
-| sm_50, sm_52, sm_53 | + Maxwell support | M40 |
-| sm_60, sm_61, sm_62 | + Pascal support |Titan XP, 1080(Ti), 1070 |
-| sm_70 | + Volta support|V100|
+`python .\third_party\build_libs.py cuda8`
 
 ### Using MaskRCNN
 
@@ -48,23 +56,18 @@ import sys
 # add this project's root directory to PATH
 sys.path.append("/ANY_DIR_YOU_CLONE_AT/mask-rcnn-pytorch/")
 from maskrcnn import MaskRCNN
-from torch.utils.data import Dataset, DataLoader
-
-# use pretrained weights: 
-# 1) "imagenet", just backbone feature map extractor trained on ImageNet.
-mask_rcnn = MaskRCNN(num_classes=80, pretrained="imagenet")
+mask_rcnn = MaskRCNN(num_classes=81, pretrained="imagenet")
 ``` 
  
-#### Example 1: Train Custom Dataset with PyTorch Typical Pipeline.
+## Examples
+### 1: Train Custom Dataset with PyTorch Typical Pipeline.
 1. Download the tiny (25MB) dataset  CST-Dataset
 
     Download link: [CST-Dataset](https://github.com/GeeshangXu/cst-dataset)
 
-2. replace `config.ini` with `examples/cst-dataset/config.ini`
+2. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
 
-3. see Jupyter Notebook [example-cst-dataset.ipynb](./examples/cst-dataset/example-cst-dataset.ipynb)
-
-#### Example 2: Train COCO Dataset.
+### 2: Train COCO Dataset.
 
 release later
 
@@ -73,7 +76,6 @@ release later
 
 | dataset | train memory(GB) | train time (hr/epoch) |inference time(s/img) |box AP| mask AP |
 | :---------------|:--------|---|:-----|----|----|
-| PASCAL VOC 2007 |  |  | | | |
 | PASCAL VOC 2012 |  |  | | | |
 | COCO 2017       |  |  | | | |
 

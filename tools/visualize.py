@@ -73,14 +73,12 @@ def apply_mask(image, mask, color, alpha=0.5):
     return image
 
 
-def display_instances(image, boxes, masks, class_ids, class_names,
-                      scores=None, title="",
-                      figsize=(16, 16), ax=None):
+def display_instances(image, labels, boxes, masks, scores=None, title="",
+                      figsize=(12, 12), ax=None):
     """
-    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
-    masks: [height, width, num_instances]
-    class_ids: [num_instances]
-    class_names: list of class names of the dataset
+    labels: [num_instance], list of class names.
+    boxes: [num_instance, (x1, y1, x2, y2)] in image coordinates.
+    masks: [num_instances, height, width]
     scores: (optional) confidence scores for each box
     figsize: (optional) the size of the image.
     """
@@ -89,7 +87,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     if not N:
         print("\n*** No instances to display *** \n")
     else:
-        assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
+        assert boxes.shape[0] == masks.shape[0]
 
     if not ax:
         _, ax = plt.subplots(1, figsize=figsize)
@@ -112,23 +110,21 @@ def display_instances(image, boxes, masks, class_ids, class_names,
         if not np.any(boxes[i]):
             # Skip this instance. Has no bbox. Likely lost in image cropping.
             continue
-        y1, x1, y2, x2 = boxes[i]
+        x1, y1, x2, y2 = boxes[i]
         p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
                               alpha=0.7, linestyle="dashed",
                               edgecolor=color, facecolor='none')
         ax.add_patch(p)
 
         # Label
-        class_id = class_ids[i]
         score = scores[i] if scores is not None else None
-        label = class_names[class_id]
-        x = random.randint(x1, (x1 + x2) // 2)
+        label = labels[i]
         caption = "{} {:.3f}".format(label, score) if score else label
         ax.text(x1, y1 + 8, caption,
-                color='w', size=11, backgroundcolor="none")
+                color='gray', size=11, backgroundcolor="none")
 
         # Mask
-        mask = masks[:, :, i]
+        mask = masks[i, :, :]
         masked_image = apply_mask(masked_image, mask, color)
 
         # Mask Polygon
@@ -382,7 +378,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
 
         # Refined boxes
         if refined_boxes is not None and visibility > 0:
-            rx1, ry1, rx2, ry2,  = refined_boxes[i].astype(np.int32)
+            rx1, ry1, rx2, ry2, = refined_boxes[i].astype(np.int32)
             p = patches.Rectangle((rx1, ry1), rx2 - rx1, ry2 - ry1, linewidth=2,
                                   edgecolor=color, facecolor='none')
             ax.add_patch(p)

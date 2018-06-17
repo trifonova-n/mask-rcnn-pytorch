@@ -19,8 +19,24 @@ class ResNet(nn.Module):
             self.resnet = resnet.resnet50(pretrained)
         elif resnet_layer == 101:
             self.resnet = resnet.resnet101(pretrained)
-        elif resnet_layer == 152:
+        else:
             self.resnet = resnet.resnet152(pretrained)
+
+        # fix layer grad
+        for p in self.resnet.conv1.parameters():
+            p.requires_grad = False
+        for p in self.resnet.layer1.parameters():
+            p.requires_grad = False
+        for p in self.resnet.layer2.parameters():
+            p.requires_grad = True
+        for p in self.resnet.layer3.parameters():
+            p.requires_grad = True
+
+        # fix batch norm layer
+        for m in self.resnet.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                for p in m.parameters():
+                    p.requires_grad = False
 
     def forward(self, x):
         x = self.resnet.conv1(x)
@@ -31,6 +47,11 @@ class ResNet(nn.Module):
         x = self.resnet.layer1(x)
         x = self.resnet.layer2(x)
         c4 = self.resnet.layer3(x)
-        # c5 = self.resnet.layer4(c4)
 
         return c4
+
+    def train(self, mode=True):
+        self.resnet.train(mode)
+        for m in self.resnet.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()

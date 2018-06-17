@@ -18,7 +18,7 @@ import numpy as np
 from .config import cfg
 from .generate_anchors import generate_anchors
 from .bbox_transform import bbox_transform_inv, clip_boxes, clip_boxes_batch
-from libs.nms.pth_nms import pth_nms as nms
+from third_party.nms.pth_nms import pth_nms as nms
 
 DEBUG = False
 
@@ -126,7 +126,7 @@ class _ProposalLayer(nn.Module):
         if not self.training:
             # filter out score below threshold
             assert batch_size == 1
-            scores_keep_idx = torch.nonzero(scores_keep > 0.5).view(-1)
+            scores_keep_idx = torch.nonzero(scores_keep > 0.05).view(-1)
             if scores_keep_idx.numel() != 0:
                 scores_keep = scores_keep[:, scores_keep_idx]
                 proposals_keep = proposals_keep[:, scores_keep_idx]

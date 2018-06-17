@@ -13,7 +13,7 @@ def pth_nms(dets, thresh):
     y2 = dets[:, 3]
     scores = dets[:, 4]
 
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    areas = (x2 - x1) * (y2 - y1)
     order = scores.sort(0, descending=True)[1]
     # order = torch.from_numpy(np.ascontiguousarray(scores.numpy().argsort()[::-1])).long()
 
@@ -29,7 +29,7 @@ def pth_nms(dets, thresh):
     y2 = dets[:, 3]
     scores = dets[:, 4]
 
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    areas = (x2 - x1) * (y2 - y1)
     order = scores.sort(0, descending=True)[1]
     # order = torch.from_numpy(np.ascontiguousarray(scores.cpu().numpy().argsort()[::-1])).long().cuda()
 
